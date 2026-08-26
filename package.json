@@ -7,11 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:setup": "node scripts/setup-db.mjs",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "resources:download": "node scripts/download-resources.mjs"
+    "db:setup": "node scripts/setup-db.mjs"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -22,12 +21,10 @@
     "pg": "^8.23.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "recharts": "^3.10.1",
-    "sharp": "^0.35.3"
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@tauri-apps/cli": "^2",
     "@types/pg": "^8.23.1",
     "eslint": "^9",
     "eslint-config-next": "15.1.6",

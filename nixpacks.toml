@@ -1,0 +1,2 @@
+# Fuerza Node. Sin esto, Nixpacks ve Cargo.toml/Tauri y intenta compilar Rust.
+providers = ["node"]

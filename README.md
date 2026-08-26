@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# La Pupusa — POS local
 
-## Getting Started
+Sistema de punto de venta y cocina para **un restaurante** (pupusería). No usa Supabase: PostgreSQL en tu máquina, Next.js y tiempo real con `LISTEN/NOTIFY`.
 
-First, run the development server:
+Carpeta: `C:\Users\50374\Downloads\pupuseria-pos`
+
+## Requisitos
+
+- Node 20+
+- PostgreSQL 16 (local o Docker)
+
+## Arranque
+
+### 1. Base de datos
+
+Con Docker (desde esta carpeta):
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker compose up -d
+npm run db:setup
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Sin Docker, crea la base `pupuseria` y un usuario admin en `DATABASE_ADMIN_URL`, copia `env.example` a `.env.local` y corre `npm run db:setup`.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+El script aplica `sql/01_schema.sql`: tablas, bloqueo de mesa, cobro, RLS, notificaciones en vivo y datos de prueba.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. App
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Abre [http://localhost:3000](http://localhost:3000)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Usuarios de prueba
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Rol | Email | Contraseña |
+|-----|--------|------------|
+| Gerente | gerente@pupuseria.local | gerente123 |
+| Mesero | mesero@pupuseria.local | mesero123 |
+| Cocinero | cocina@pupuseria.local | cocina123 |
+| Cajero | caja@pupuseria.local | caja123 |
 
-## Deploy on Vercel
+## Módulos
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Mesas** — verde disponible / rojo ocupada. Al abrir: nombre de control. Una mesa = un pedido abierto (índice único + `FOR UPDATE`).
+- **Toma de orden** — pupusas por especialidad y masa (maíz/arroz), bebidas y destino por ítem. Los ítems se crean como **borrador**: se pueden ajustar o quitar hasta pulsar **Enviar nuevos platillos a cocina**. Mientras estén **Pendientes** en cocina (sin iniciar), todavía se pueden corregir o quitar; los cambios se reflejan automáticamente en Cocina. Una mesa puede combinar comer aquí y para llevar.
+- **Cocina** — tablero táctil Pendiente → En preparación → Entregado, más una columna de entregados pendientes de cobro. Los entregados solo desaparecen al cobrar la orden.
+- **Caja** — monitor de mesas + comer aquí / para llevar + cobro (también desde la mesa).
+- **Reportes** — ventas día/semana/mes, más vendidos, exportar CSV.
+- **Menú** — alta de productos (gerente).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Tiempo real (sin Supabase)
+
+Triggers en `mesas`, `pedidos` y `detalle_pedidos` hacen `NOTIFY pos_events`. La app abre un canal SSE en `/api/realtime`.
+
+## Seguridad
+
+- JWT en cookie httpOnly
+- Rol de app `pupuseria_app` (no superuser)
+- RLS + `FORCE ROW LEVEL SECURITY`
+- Sesión por transacción: `app.role` y `app.user_id`
+- El cobro y el candado de mesa están en PostgreSQL, no solo en la UI
+
+Cambia `JWT_SECRET` y las contraseñas de Postgres antes de usarlo en un local real.
+
+## Railway
+
+El servicio es **Next.js (Node)**, no una app de escritorio. Variables mínimas:
+
+- `DATABASE_URL` — Postgres de Railway
+- `JWT_SECRET` — secreto largo
+
+Build: `npm run build` · Start: `npm start` · Provider: Node (`nixpacks.toml`).

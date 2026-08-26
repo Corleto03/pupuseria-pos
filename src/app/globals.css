@@ -3,19 +3,37 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f3eee6;
+  --foreground: #1c1714;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  min-height: 100%;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply btn bg-ink text-paper hover:bg-black;
+  }
+  .btn-clay {
+    @apply btn bg-clay text-white hover:bg-orange-800;
+  }
+  .btn-ghost {
+    @apply btn text-mute hover:bg-white/70 hover:text-ink;
+  }
+  .card {
+    @apply rounded-2xl border border-line bg-white shadow-card;
+  }
+  .input {
+    @apply w-full rounded-xl border border-line bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-ink;
+  }
 }

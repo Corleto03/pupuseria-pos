@@ -27,20 +27,35 @@ if (!adminUrl || !appUrl) {
 
 const sql = fs.readFileSync(path.join(root, "sql", "01_schema.sql"), "utf8");
 
+function databaseName(url) {
+  const name = new URL(url).pathname.replace(/^\//, "");
+  if (!name) throw new Error("DATABASE_URL no indica una base de datos");
+  return decodeURIComponent(name);
+}
+
+function quoteIdentifier(value) {
+  return `\"${value.replaceAll('"', '\"\"')}\"`;
+}
+
 async function main() {
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
-  const exists = await admin.query("SELECT 1 FROM pg_database WHERE datname = 'pupuseria'");
+  const targetDatabase = databaseName(appUrl);
+  const exists = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [targetDatabase]);
   if (exists.rowCount === 0) {
-    await admin.query("CREATE DATABASE pupuseria");
-    console.log("Base de datos pupuseria creada.");
+    await admin.query(`CREATE DATABASE ${quoteIdentifier(targetDatabase)}`);
+    console.log(`Base de datos ${targetDatabase} creada.`);
   } else {
-    console.log("Base de datos pupuseria ya existe.");
+    console.log(`Base de datos ${targetDatabase} ya existe.`);
   }
   await admin.end();
 
-  const dbUrl = new URL(adminUrl);
-  dbUrl.pathname = "/pupuseria";
+  // Usa las credenciales administrativas para aplicar el esquema, pero en la
+  // misma base que consumirá la aplicación (DATABASE_URL).
+  const dbUrl = new URL(appUrl);
+  const adminCredentials = new URL(adminUrl);
+  dbUrl.username = adminCredentials.username;
+  dbUrl.password = adminCredentials.password;
   const db = new pg.Client({ connectionString: dbUrl.toString() });
   await db.connect();
   await db.query(sql);

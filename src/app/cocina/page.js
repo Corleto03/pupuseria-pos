@@ -123,6 +123,11 @@ export default function CocinaPage() {
                         {p.nombre_control} · {fmt.time(p.fecha)}
                       </p>
                     </div>
+                    {p.notas && (
+                      <div className="mb-3 bg-red-500/20 border border-red-500/30 text-red-200 rounded-xl p-2.5 text-xs font-semibold">
+                        Nota pedido: {p.notas}
+                      </div>
+                    )}
                     <div className="space-y-2">
                       {items.map((d) => {
                         const isSelected = selectedItems[d.id] || false;

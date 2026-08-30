@@ -52,7 +52,6 @@ export default function LlevarPage() {
     });
     const data = await res.json();
     if (!res.ok) return toast(data.error, "err");
-    if (pago.imprimir) await printTicket(activo.id);
     setNombre("");
     await load();
     const full = await fetch(`/api/pedidos/${data.pedido.id}`).then((r) => r.json());
@@ -69,6 +68,7 @@ export default function LlevarPage() {
     const data = await res.json();
     setSaving(false);
     if (!res.ok) return toast(data.error, "err");
+    if (pago.imprimir) await printTicket(activo.id);
     toast("Pedido cobrado");
     setCobro(false);
     setActivo(null);

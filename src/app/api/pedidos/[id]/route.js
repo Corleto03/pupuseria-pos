@@ -34,17 +34,71 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ enviados: rows.length });
     }
     if (body.accion === "cobrar") {
-      if (!["efectivo", "tarjeta"].includes(body.metodo_pago)) {
+      if (!["efectivo", "tarjeta", "mixto"].includes(body.metodo_pago)) {
         return NextResponse.json({ error: "Método de pago inválido" }, { status: 400 });
       }
-      const { rows } = await withUser(user, (c) =>
-        c.query(
-          `UPDATE pedidos SET estado_pago = 'pagada', fecha_pago = NOW(), metodo_pago = $2
+      const { rows } = await withUser(user, async (c) => {
+        const orderRes = await c.query("SELECT total FROM pedidos WHERE id = $1 AND estado_pago = 'pendiente'", [id]);
+        if (!orderRes.rows[0]) {
+          throw Object.assign(new Error("Pedido no disponible para cobro"), { code: "P0001" });
+        }
+        const total = Number(orderRes.rows[0].total);
+        let ef = 0;
+        let tj = 0;
+
+        if (body.metodo_pago === "efectivo") {
+          ef = total;
+        } else if (body.metodo_pago === "tarjeta") {
+          tj = total;
+        } else if (body.metodo_pago === "mixto") {
+          ef = Number(body.pago_efectivo) || 0;
+          tj = Number(body.pago_tarjeta) || 0;
+          if (ef + tj < total) {
+            throw Object.assign(new Error("Los montos ingresados no cubren el total de la cuenta"), { code: "P0001" });
+          }
+        }
+
+        return c.query(
+          `UPDATE pedidos 
+           SET estado_pago = 'pagada', fecha_pago = NOW(), metodo_pago = $2, pago_efectivo = $3, pago_tarjeta = $4
            WHERE id = $1 AND estado_pago = 'pendiente' RETURNING *`,
-          [id, body.metodo_pago]
-        )
-      );
-      if (!rows[0]) return NextResponse.json({ error: "Pedido no disponible para cobro" }, { status: 409 });
+          [id, body.metodo_pago, ef, tj]
+        );
+      });
+      return NextResponse.json({ pedido: rows[0] });
+    }
+    if (body.accion === "cambiar_metodo_pago") {
+      if (!["efectivo", "tarjeta", "mixto"].includes(body.metodo_pago)) {
+        return NextResponse.json({ error: "Método de pago inválido" }, { status: 400 });
+      }
+      const { rows } = await withUser(user, async (c) => {
+        const orderRes = await c.query("SELECT total FROM pedidos WHERE id = $1 AND estado_pago = 'pagada'", [id]);
+        if (!orderRes.rows[0]) {
+          throw Object.assign(new Error("Pedido no encontrado o no está pagado"), { code: "P0001" });
+        }
+        const total = Number(orderRes.rows[0].total);
+        let ef = 0;
+        let tj = 0;
+
+        if (body.metodo_pago === "efectivo") {
+          ef = total;
+        } else if (body.metodo_pago === "tarjeta") {
+          tj = total;
+        } else if (body.metodo_pago === "mixto") {
+          ef = Number(body.pago_efectivo) || 0;
+          tj = Number(body.pago_tarjeta) || 0;
+          if (ef + tj < total) {
+            throw Object.assign(new Error("Los montos ingresados no cubren el total de la cuenta"), { code: "P0001" });
+          }
+        }
+
+        return c.query(
+          `UPDATE pedidos 
+           SET metodo_pago = $2, pago_efectivo = $3, pago_tarjeta = $4
+           WHERE id = $1 AND estado_pago = 'pagada' RETURNING *`,
+          [id, body.metodo_pago, ef, tj]
+        );
+      });
       return NextResponse.json({ pedido: rows[0] });
     }
     if (body.accion === "cancelar") {
@@ -63,6 +117,16 @@ export async function PATCH(request, { params }) {
           [id]
         );
       });
+      return NextResponse.json({ pedido: rows[0] });
+    }
+    if (body.notas !== undefined) {
+      const { rows } = await withUser(user, (c) =>
+        c.query(
+          `UPDATE pedidos SET notas = $2 WHERE id = $1 RETURNING *`,
+          [id, body.notas || null]
+        )
+      );
+      if (!rows[0]) return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 });
       return NextResponse.json({ pedido: rows[0] });
     }
     return NextResponse.json({ error: "Acción inválida" }, { status: 400 });

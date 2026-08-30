@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS public.usuarios (
   nombre         TEXT NOT NULL,
   rol            TEXT NOT NULL CHECK (rol IN ('superadmin', 'admin', 'gerente', 'mesero', 'cocinero', 'cajero')),
   activo         BOOLEAN NOT NULL DEFAULT TRUE,
+  eliminado      BOOLEAN NOT NULL DEFAULT FALSE,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -53,10 +54,13 @@ CREATE TABLE IF NOT EXISTS public.pedidos (
   tipo_pedido     TEXT NOT NULL CHECK (tipo_pedido IN ('local', 'llevar')),
   estado_pago     TEXT NOT NULL DEFAULT 'pendiente'
                     CHECK (estado_pago IN ('pendiente', 'pagada', 'cancelada')),
-  metodo_pago     TEXT CHECK (metodo_pago IN ('efectivo', 'tarjeta')),
+  metodo_pago     TEXT CHECK (metodo_pago IN ('efectivo', 'tarjeta', 'mixto')),
+  pago_efectivo   NUMERIC(10,2) NOT NULL DEFAULT 0,
+  pago_tarjeta    NUMERIC(10,2) NOT NULL DEFAULT 0,
   total           NUMERIC(10,2) NOT NULL DEFAULT 0,
   fecha           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fecha_pago      TIMESTAMPTZ,
+  notas           TEXT,
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT pedidos_mesa_si_local CHECK (
     (tipo_pedido = 'local' AND id_mesa IS NOT NULL)
@@ -112,7 +116,7 @@ ALTER TABLE public.usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
 ALTER TABLE public.usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('superadmin', 'admin', 'gerente', 'mesero', 'cocinero', 'cajero'));
 ALTER TABLE public.pedidos ADD COLUMN IF NOT EXISTS metodo_pago TEXT;
 ALTER TABLE public.pedidos DROP CONSTRAINT IF EXISTS pedidos_metodo_pago_check;
-ALTER TABLE public.pedidos ADD CONSTRAINT pedidos_metodo_pago_check CHECK (metodo_pago IN ('efectivo', 'tarjeta') OR metodo_pago IS NULL);
+ALTER TABLE public.pedidos ADD CONSTRAINT pedidos_metodo_pago_check CHECK (metodo_pago IN ('efectivo', 'tarjeta', 'mixto') OR metodo_pago IS NULL);
 
 CREATE TABLE IF NOT EXISTS public.auditoria (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -131,6 +135,11 @@ CREATE TABLE IF NOT EXISTS public.intentos_login (
   intentos INT NOT NULL DEFAULT 0,
   bloqueado_hasta TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.ajustes (
+  clave TEXT PRIMARY KEY,
+  valor TEXT NOT NULL
 );
 
 CREATE OR REPLACE FUNCTION public.registrar_auditoria()
@@ -490,6 +499,7 @@ ALTER TABLE public.productos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pedidos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detalle_pedidos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.auditoria ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ajustes ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.usuarios FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.mesas FORCE ROW LEVEL SECURITY;
@@ -497,6 +507,7 @@ ALTER TABLE public.productos FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.pedidos FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.detalle_pedidos FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.auditoria FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ajustes FORCE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS usuarios_select ON public.usuarios;
 CREATE POLICY usuarios_select ON public.usuarios FOR SELECT
@@ -570,6 +581,15 @@ DROP POLICY IF EXISTS auditoria_select ON public.auditoria;
 CREATE POLICY auditoria_select ON public.auditoria FOR SELECT
   USING (public.current_app_role() IN ('superadmin', 'admin'));
 
+DROP POLICY IF EXISTS ajustes_select ON public.ajustes;
+CREATE POLICY ajustes_select ON public.ajustes FOR SELECT
+  USING (true);
+
+DROP POLICY IF EXISTS ajustes_write ON public.ajustes;
+CREATE POLICY ajustes_write ON public.ajustes FOR ALL
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente'))
+  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente'));
+
 -- ─────────────────────────────────────────────
 -- PERMISOS
 -- ─────────────────────────────────────────────
@@ -629,6 +649,11 @@ INSERT INTO public.productos (nombre, categoria, precio, especialidad, sort_orde
   ('Agua',                     'bebida', 0.50, NULL, 24),
   ('Ensalada de curtido',      'extra',  0.00, NULL, 30)
 ON CONFLICT DO NOTHING;
+
+INSERT INTO public.ajustes (clave, valor) VALUES
+  ('nombre_restaurante', 'La Pupusa'),
+  ('logo_url', '')
+ON CONFLICT (clave) DO NOTHING;
 
 -- Las cuentas iniciales se crean desde scripts/setup-db.mjs usando variables
 -- privadas BOOTSTRAP_*; no se incluyen usuarios ni contraseñas en Git.

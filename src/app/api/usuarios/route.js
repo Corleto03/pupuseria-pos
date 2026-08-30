@@ -11,7 +11,8 @@ export async function GET() {
   const { rows } = await withUser(user, (c) =>
     c.query(
       `SELECT id, email, nombre, rol, activo, created_at FROM usuarios
-       ${user.rol === "superadmin" ? "" : "WHERE rol <> 'superadmin'"}
+       WHERE eliminado = FALSE
+       ${user.rol === "superadmin" ? "" : "AND rol <> 'superadmin'"}
        ORDER BY created_at ASC`
     )
   );

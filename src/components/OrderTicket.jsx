@@ -151,7 +151,6 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
           {byCat[tab].map((p) => (
             <button
               key={p.id}
-              disabled={saving}
               onClick={() => add(p)}
               className="card p-3 md:p-4 text-left transition hover:-translate-y-0.5 active:scale-95 flex flex-col justify-between min-h-[90px]"
             >
@@ -194,6 +193,28 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
               <X size={20} />
             </button>
           </div>
+          {/* Order Note (Mobile) */}
+          <div className="w-full mt-2">
+            <input
+              type="text"
+              placeholder="Nota del pedido (solo cocina): Alergias, etc."
+              defaultValue={pedido.notas || ""}
+              onBlur={async (e) => {
+                const val = e.target.value.trim();
+                if (val !== (pedido.notas || "")) {
+                  const res = await fetch(`/api/pedidos/${pedido.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ notas: val || null }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) return toast(data.error || "No se pudo actualizar la nota", "err");
+                  onChanged();
+                }
+              }}
+              className="w-full rounded-xl border border-line bg-stone-50 px-3 py-1.5 text-xs text-ink placeholder:text-mute/70 focus:outline-none focus:ring-1 focus:ring-clay"
+            />
+          </div>
         </div>
 
         {/* Desktop Header */}
@@ -203,6 +224,31 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
           <p className="text-sm text-mute">
             {pedido.tipo_pedido === "local" ? `Mesa ${pedido.mesa_numero}` : "Para llevar"}
           </p>
+          {/* Order Note (Desktop) */}
+          <div className="mt-3">
+            <label className="text-[11px] uppercase tracking-wide text-mute font-medium">
+              Nota del pedido (solo cocina)
+            </label>
+            <input
+              type="text"
+              placeholder="Alergias, indicaciones generales..."
+              defaultValue={pedido.notas || ""}
+              onBlur={async (e) => {
+                const val = e.target.value.trim();
+                if (val !== (pedido.notas || "")) {
+                  const res = await fetch(`/api/pedidos/${pedido.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ notas: val || null }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) return toast(data.error || "No se pudo actualizar la nota", "err");
+                  onChanged();
+                }
+              }}
+              className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-1.5 text-xs text-ink placeholder:text-mute/70 focus:outline-none focus:ring-1 focus:ring-clay"
+            />
+          </div>
         </div>
 
         {/* Cart Items List */}

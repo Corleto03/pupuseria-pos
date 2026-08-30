@@ -15,6 +15,7 @@ import {
   LogOut,
   Menu,
   X,
+  Settings,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import clsx from "clsx";
@@ -28,6 +29,7 @@ const NAV = [
   { href: "/dashboard", label: "Reportes", icon: BarChart3, roles: ["superadmin", "admin", "gerente"] },
   { href: "/menu", label: "Menú", icon: BookOpen, roles: ["superadmin", "admin", "gerente"] },
   { href: "/usuarios", label: "Usuarios", icon: Users, roles: ["superadmin", "admin"] },
+  { href: "/personalizacion", label: "Personalizar", icon: Settings, roles: ["superadmin", "admin"] },
 ];
 
 export default function Shell({ title, actions, children, dark = false }) {
@@ -35,6 +37,18 @@ export default function Shell({ title, actions, children, dark = false }) {
   const pathname = usePathname();
   const items = NAV.filter((n) => user && n.roles.includes(user.rol));
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [ajustes, setAjustes] = useState({ nombre_restaurante: "La Pupusa", logo_url: "" });
+
+  useEffect(() => {
+    fetch("/api/ajustes")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.nombre_restaurante !== undefined) {
+          setAjustes(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Cerrar menú móvil al cambiar de ruta
   useEffect(() => {
@@ -44,11 +58,20 @@ export default function Shell({ title, actions, children, dark = false }) {
   const SidebarContent = () => (
     <>
       <div className="px-5 py-6 flex items-center justify-between">
-        <div>
-          <p className={clsx("font-display text-xl leading-none", dark ? "text-stone-100" : "text-ink")}>
-            La Pupusa
-          </p>
-          <p className={clsx("mt-1 text-xs", dark ? "text-stone-500" : "text-mute")}>POS del local</p>
+        <div className="flex items-center gap-3">
+          {ajustes.logo_url && (
+            <img
+              src={ajustes.logo_url}
+              alt="Logo"
+              className="h-9 w-9 rounded-lg object-contain bg-white p-0.5 border border-line"
+            />
+          )}
+          <div>
+            <p className={clsx("font-display text-lg leading-none font-semibold", dark ? "text-stone-100" : "text-ink")}>
+              {ajustes.nombre_restaurante || "La Pupusa"}
+            </p>
+            <p className={clsx("mt-1 text-[10px]", dark ? "text-stone-500" : "text-mute")}>POS del local</p>
+          </div>
         </div>
         <button 
           className="md:hidden p-1 text-mute hover:bg-black/5 rounded-lg"

@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import Shell from "@/components/Shell";
 import { useToast } from "@/components/Toast";
+import ConfirmModal from "@/components/ConfirmModal";
 
 const roles = ["admin", "gerente", "mesero", "cocinero", "cajero"];
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState([]);
   const [form, setForm] = useState({ nombre: "", email: "", rol: "mesero", password: "" });
+  const [deleteUserObj, setDeleteUserObj] = useState(null);
   const toast = useToast();
   const load = useCallback(async () => {
     const res = await fetch("/api/usuarios");
@@ -39,6 +41,15 @@ export default function UsuariosPage() {
     if (!res.ok) return toast(data.error, "err");
     toast("Contraseña actualizada");
   }
+  async function ejecutarEliminarUsuario() {
+    if (!deleteUserObj) return;
+    const res = await fetch(`/api/usuarios/${deleteUserObj.id}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) return toast(data.error, "err");
+    toast("Usuario eliminado");
+    setDeleteUserObj(null);
+    load();
+  }
   return <Shell title="Usuarios">
     <form onSubmit={create} className="card mb-6 grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-5">
       <input className="input" placeholder="Nombre" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
@@ -47,6 +58,17 @@ export default function UsuariosPage() {
       <input className="input" type="password" minLength="12" placeholder="Contraseña (12+)" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
       <button className="btn-primary">Crear usuario</button>
     </form>
-    <div className="card overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-line text-left text-xs text-mute"><th className="p-3">Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3 text-right">Acciones</th></tr></thead><tbody>{usuarios.map((u) => <tr key={u.id} className="border-b border-line/70"><td className="p-3"><p className="font-medium">{u.nombre}</p><p className="text-xs text-mute">{u.email}</p></td><td className="p-3 capitalize">{u.rol}</td><td className="p-3">{u.activo ? "Activo" : "Inactivo"}</td><td className="p-3 text-right"><button onClick={() => reset(u)} className="mr-3 text-xs text-mute">Contraseña</button><button onClick={() => toggle(u)} className="text-xs text-wine">{u.activo ? "Desactivar" : "Activar"}</button></td></tr>)}</tbody></table></div>
+    <div className="card overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-line text-left text-xs text-mute"><th className="p-3">Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3 text-right">Acciones</th></tr></thead><tbody>{usuarios.map((u) => <tr key={u.id} className="border-b border-line/70"><td className="p-3"><p className="font-medium">{u.nombre}</p><p className="text-xs text-mute">{u.email}</p></td><td className="p-3 capitalize">{u.rol}</td><td className="p-3">{u.activo ? "Activo" : "Inactivo"}</td><td className="p-3 text-right"><button onClick={() => reset(u)} className="mr-3 text-xs text-mute">Contraseña</button><button onClick={() => toggle(u)} className="mr-3 text-xs text-wine">{u.activo ? "Desactivar" : "Activar"}</button><button onClick={() => setDeleteUserObj(u)} className="text-xs text-red-600 hover:text-red-800 font-semibold">Eliminar</button></td></tr>)}</tbody></table></div>
+
+    <ConfirmModal
+      isOpen={!!deleteUserObj}
+      title="¿Eliminar Usuario?"
+      message={`¿Está seguro de que desea eliminar permanentemente al usuario ${deleteUserObj?.nombre}?`}
+      confirmText="Sí, eliminar"
+      cancelText="Cancelar"
+      isDestructive={true}
+      onConfirm={ejecutarEliminarUsuario}
+      onClose={() => setDeleteUserObj(null)}
+    />
   </Shell>;
 }

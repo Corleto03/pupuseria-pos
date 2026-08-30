@@ -12,6 +12,7 @@ const RULES = [
   { prefix: "/dashboard", roles: ["superadmin", "admin", "gerente"] },
   { prefix: "/menu", roles: ["superadmin", "admin", "gerente"] },
   { prefix: "/usuarios", roles: ["superadmin", "admin"] },
+  { prefix: "/personalizacion", roles: ["superadmin", "admin"] },
 ];
 
 function secret() {

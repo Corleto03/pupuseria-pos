@@ -10,16 +10,26 @@ export async function POST(request) {
     return NextResponse.json({ error: "Email y contraseña requeridos" }, { status: 400 });
   }
 
-  const { rows } = await pool.query("SELECT * FROM public.login_lookup($1)", [email.trim()]);
+  const loginKey = email.trim().toLowerCase();
+  const allowed = await pool.query("SELECT public.login_puede_intentar($1) AS ok", [loginKey]);
+  if (!allowed.rows[0]?.ok) {
+    return NextResponse.json({ error: "Demasiados intentos. Intente nuevamente en 15 minutos." }, { status: 429 });
+  }
+
+  const { rows } = await pool.query("SELECT * FROM public.login_lookup($1)", [loginKey]);
   const user = rows[0];
   if (!user || !user.activo) {
+    await pool.query("SELECT public.login_fallido($1)", [loginKey]);
     return NextResponse.json({ error: "Credenciales inválidas" }, { status: 401 });
   }
 
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) {
+    await pool.query("SELECT public.login_fallido($1)", [loginKey]);
     return NextResponse.json({ error: "Credenciales inválidas" }, { status: 401 });
   }
+
+  await pool.query("SELECT public.login_exitoso($1)", [loginKey]);
 
   const token = await signToken(user);
   const jar = await cookies();

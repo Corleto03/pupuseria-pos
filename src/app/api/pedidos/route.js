@@ -26,7 +26,7 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const { user, error } = await requireUser(["gerente", "mesero", "cajero"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente", "mesero", "cajero"]);
   if (error) return error;
   const body = await request.json();
   try {

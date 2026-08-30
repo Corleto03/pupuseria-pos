@@ -7,8 +7,8 @@ export async function PATCH(request, { params }) {
   const body = await request.json();
 
   const roles = body.estado_cocina
-    ? ["gerente", "cocinero", "mesero", "cajero"]
-    : ["gerente", "mesero", "cajero"];
+    ? ["superadmin", "admin", "gerente", "cocinero"]
+    : ["superadmin", "admin", "gerente", "mesero", "cajero"];
   const { user, error } = await requireUser(roles);
   if (error) return error;
 
@@ -74,7 +74,8 @@ export async function PATCH(request, { params }) {
           throw Object.assign(new Error("Destino de servicio inválido"), { code: "P0001" });
         }
         return c.query(
-          `UPDATE detalle_pedidos SET destino_servicio = $1 WHERE id = $2 AND id_pedido = $3 RETURNING *`,
+          `UPDATE detalle_pedidos SET destino_servicio = $1
+           WHERE id = $2 AND id_pedido = $3 AND estado_cocina IN ('borrador', 'pendiente') RETURNING *`,
           [body.destino_servicio, detalleId, id]
         );
       }
@@ -91,7 +92,7 @@ export async function PATCH(request, { params }) {
 }
 
 export async function DELETE(_req, { params }) {
-  const { user, error } = await requireUser(["gerente", "mesero", "cajero"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente", "mesero", "cajero"]);
   if (error) return error;
   const { id, detalleId } = await params;
   try {

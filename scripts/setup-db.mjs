@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import bcrypt from "bcryptjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -37,6 +38,39 @@ function quoteIdentifier(value) {
   return `\"${value.replaceAll('"', '\"\"')}\"`;
 }
 
+function quoteLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+async function ensureAppRole(admin, appUrl) {
+  const url = new URL(appUrl);
+  const role = decodeURIComponent(url.username);
+  const password = decodeURIComponent(url.password);
+  if (!role || !password) throw new Error("DATABASE_URL debe incluir el usuario y contraseña de la aplicación");
+  const exists = await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role]);
+  if (exists.rowCount) {
+    await admin.query(`ALTER ROLE ${quoteIdentifier(role)} WITH LOGIN PASSWORD ${quoteLiteral(password)}`);
+  } else {
+    await admin.query(`CREATE ROLE ${quoteIdentifier(role)} LOGIN PASSWORD ${quoteLiteral(password)}`);
+  }
+}
+
+async function bootstrapUser(db, prefix, role) {
+  const email = process.env[`${prefix}_EMAIL`]?.trim().toLowerCase();
+  const password = process.env[`${prefix}_PASSWORD`];
+  const name = process.env[`${prefix}_NOMBRE`]?.trim() || prefix.replace("BOOTSTRAP_", "");
+  if (!email || !password) return false;
+  if (password.length < 12) throw new Error(`${prefix}_PASSWORD debe tener al menos 12 caracteres`);
+  const hash = await bcrypt.hash(password, 12);
+  await db.query(
+    `INSERT INTO public.usuarios (email, password_hash, nombre, rol)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (email) DO NOTHING`,
+    [email, hash, name, role]
+  );
+  return true;
+}
+
 async function main() {
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
@@ -48,6 +82,7 @@ async function main() {
   } else {
     console.log(`Base de datos ${targetDatabase} ya existe.`);
   }
+  await ensureAppRole(admin, appUrl);
   await admin.end();
 
   // Usa las credenciales administrativas para aplicar el esquema, pero en la
@@ -59,9 +94,17 @@ async function main() {
   const db = new pg.Client({ connectionString: dbUrl.toString() });
   await db.connect();
   await db.query(sql);
+  const hasSupport = await bootstrapUser(db, "BOOTSTRAP_SUPERADMIN", "superadmin");
+  const hasAdmin = await bootstrapUser(db, "BOOTSTRAP_ADMIN", "admin");
+  if (hasSupport && hasAdmin) {
+    await db.query(
+      `UPDATE public.usuarios SET activo = FALSE
+       WHERE email IN ('gerente@pupuseria.local', 'mesero@pupuseria.local', 'cocina@pupuseria.local', 'caja@pupuseria.local')`
+    );
+  }
   await db.end();
   console.log("Esquema, RLS, realtime y seed aplicados.");
-  console.log("Usuarios: gerente@ / mesero@ / cocina@ / caja@  (dominio pupuseria.local)");
+  if (!hasSupport || !hasAdmin) console.log("Configura BOOTSTRAP_SUPERADMIN_* y BOOTSTRAP_ADMIN_* para crear las cuentas iniciales.");
 }
 
 main().catch((err) => {

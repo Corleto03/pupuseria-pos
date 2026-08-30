@@ -247,6 +247,21 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
                         <option value="llevar">Para llevar</option>
                       </select>
                     )}
+                    {editable && (
+                      <input
+                        aria-label="Nota del platillo"
+                        defaultValue={d.notas || ""}
+                        onBlur={(e) => {
+                          const value = e.target.value.trim();
+                          if (value !== (d.notas || "")) patchItem(d.id, { notas: value || null });
+                        }}
+                        placeholder="Nota opcional (alergias, indicaciones)"
+                        className="mt-1 w-full rounded border border-line bg-white px-2 py-1.5 text-[11px] text-ink placeholder:text-mute/70"
+                      />
+                    )}
+                    {!editable && d.notas && (
+                      <p className="mt-1 text-[11px] text-wine">Nota: {d.notas}</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0 bg-white lg:bg-transparent rounded-xl border border-line lg:border-0 p-1 lg:p-0">
                     <button

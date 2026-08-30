@@ -4,13 +4,14 @@ import { jwtVerify } from "jose";
 const COOKIE = "pos_session";
 
 const RULES = [
-  { prefix: "/mesas", roles: ["gerente", "mesero", "cajero"] },
-  { prefix: "/llevar", roles: ["gerente", "mesero", "cajero"] },
-  { prefix: "/caja", roles: ["gerente", "mesero", "cajero"] },
-  { prefix: "/historial", roles: ["gerente", "mesero", "cajero"] },
-  { prefix: "/cocina", roles: ["gerente", "cocinero"] },
-  { prefix: "/dashboard", roles: ["gerente"] },
-  { prefix: "/menu", roles: ["gerente"] },
+  { prefix: "/mesas", roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
+  { prefix: "/llevar", roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
+  { prefix: "/caja", roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
+  { prefix: "/historial", roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
+  { prefix: "/cocina", roles: ["superadmin", "admin", "gerente", "cocinero"] },
+  { prefix: "/dashboard", roles: ["superadmin", "admin", "gerente"] },
+  { prefix: "/menu", roles: ["superadmin", "admin", "gerente"] },
+  { prefix: "/usuarios", roles: ["superadmin", "admin"] },
 ];
 
 function secret() {

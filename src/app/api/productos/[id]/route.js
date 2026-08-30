@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/api";
 import { pgError, withUser } from "@/lib/db";
 
 export async function PATCH(request, { params }) {
-  const { user, error } = await requireUser(["gerente"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente"]);
   if (error) return error;
   const { id } = await params;
   const body = await request.json();
@@ -52,7 +52,7 @@ export async function PATCH(request, { params }) {
 }
 
 export async function DELETE(_req, { params }) {
-  const { user, error } = await requireUser(["gerente"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente"]);
   if (error) return error;
   const { id } = await params;
 

@@ -15,7 +15,7 @@ export async function GET(_req, { params }) {
 }
 
 export async function PATCH(request, { params }) {
-  const { user, error } = await requireUser(["gerente", "mesero", "cajero"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente", "mesero", "cajero"]);
   if (error) return error;
   const { id } = await params;
   const body = await request.json();
@@ -34,11 +34,14 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ enviados: rows.length });
     }
     if (body.accion === "cobrar") {
+      if (!["efectivo", "tarjeta"].includes(body.metodo_pago)) {
+        return NextResponse.json({ error: "Método de pago inválido" }, { status: 400 });
+      }
       const { rows } = await withUser(user, (c) =>
         c.query(
-          `UPDATE pedidos SET estado_pago = 'pagada', fecha_pago = NOW()
+          `UPDATE pedidos SET estado_pago = 'pagada', fecha_pago = NOW(), metodo_pago = $2
            WHERE id = $1 AND estado_pago = 'pendiente' RETURNING *`,
-          [id]
+          [id, body.metodo_pago]
         )
       );
       if (!rows[0]) return NextResponse.json({ error: "Pedido no disponible para cobro" }, { status: 409 });

@@ -16,7 +16,7 @@ export async function GET() {
 }
 
 export async function POST(request) {
-  const { user, error } = await requireUser(["gerente"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente"]);
   if (error) return error;
   const body = await request.json();
   const { rows } = await withUser(user, (c) =>

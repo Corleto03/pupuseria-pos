@@ -8,6 +8,7 @@ import CobroModal from "@/components/CobroModal";
 import { useRealtime } from "@/hooks/useRealtime";
 import { useToast } from "@/components/Toast";
 import { fmt } from "@/lib/formatters";
+import { printTicket } from "@/lib/printTicket";
 
 export default function LlevarPage() {
   const [pedidos, setPedidos] = useState([]);
@@ -51,18 +52,19 @@ export default function LlevarPage() {
     });
     const data = await res.json();
     if (!res.ok) return toast(data.error, "err");
+    if (pago.imprimir) await printTicket(activo.id);
     setNombre("");
     await load();
     const full = await fetch(`/api/pedidos/${data.pedido.id}`).then((r) => r.json());
     setActivo(full.pedido);
   }
 
-  async function cobrar() {
+  async function cobrar(_pedido, pago) {
     setSaving(true);
     const res = await fetch(`/api/pedidos/${activo.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accion: "cobrar" }),
+      body: JSON.stringify({ accion: "cobrar", ...pago }),
     });
     const data = await res.json();
     setSaving(false);

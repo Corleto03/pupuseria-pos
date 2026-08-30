@@ -17,7 +17,7 @@ function rango(periodo) {
 }
 
 export async function GET(request) {
-  const { user, error } = await requireUser(["gerente"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente"]);
   if (error) return error;
   const periodo = new URL(request.url).searchParams.get("periodo") || "dia";
   const { start, end } = rango(periodo);

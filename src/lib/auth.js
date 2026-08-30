@@ -2,7 +2,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 
 export const COOKIE = "pos_session";
-export const ROLES = ["gerente", "mesero", "cocinero", "cajero"];
+export const ROLES = ["superadmin", "admin", "gerente", "mesero", "cocinero", "cajero"];
 
 const secret = () => {
   const s = process.env.JWT_SECRET;
@@ -49,6 +49,8 @@ export function canAccess(rol, roles) {
 }
 
 export const HOME_BY_ROLE = {
+  superadmin: "/dashboard",
+  admin: "/dashboard",
   gerente: "/dashboard",
   mesero: "/mesas",
   cajero: "/caja",

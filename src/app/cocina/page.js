@@ -222,6 +222,11 @@ export default function CocinaPage() {
                                     <span className="block text-xs text-stone-400">
                                       {[d.variante, d.destino_servicio === "llevar" ? "Para llevar" : "Comer aquí"].filter(Boolean).join(" · ")}
                                     </span>
+                                    {d.notas && (
+                                      <span className="mt-1 block text-xs font-semibold text-amber-300">
+                                        Nota: {d.notas}
+                                      </span>
+                                    )}
                                   </span>
                                   {col.key !== "entregado" && (
                                     <span className="text-[11px] uppercase tracking-wide text-stone-400 opacity-60 group-hover:opacity-100 transition">

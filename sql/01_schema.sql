@@ -9,13 +9,8 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- ─────────────────────────────────────────────
 -- ROL DE APLICACIÓN (no es superuser → RLS aplica)
 -- ─────────────────────────────────────────────
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pupuseria_app') THEN
-    CREATE ROLE pupuseria_app LOGIN PASSWORD 'pupuseria_app';
-  END IF;
-END
-$$;
+-- El script de instalación crea este rol con las credenciales privadas de
+-- DATABASE_URL. Nunca se guardan contraseñas en este archivo.
 
 -- ─────────────────────────────────────────────
 -- TABLAS
@@ -26,7 +21,7 @@ CREATE TABLE IF NOT EXISTS public.usuarios (
   email          TEXT NOT NULL UNIQUE,
   password_hash  TEXT NOT NULL,
   nombre         TEXT NOT NULL,
-  rol            TEXT NOT NULL CHECK (rol IN ('gerente', 'mesero', 'cocinero', 'cajero')),
+  rol            TEXT NOT NULL CHECK (rol IN ('superadmin', 'admin', 'gerente', 'mesero', 'cocinero', 'cajero')),
   activo         BOOLEAN NOT NULL DEFAULT TRUE,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -58,6 +53,7 @@ CREATE TABLE IF NOT EXISTS public.pedidos (
   tipo_pedido     TEXT NOT NULL CHECK (tipo_pedido IN ('local', 'llevar')),
   estado_pago     TEXT NOT NULL DEFAULT 'pendiente'
                     CHECK (estado_pago IN ('pendiente', 'pagada', 'cancelada')),
+  metodo_pago     TEXT CHECK (metodo_pago IN ('efectivo', 'tarjeta')),
   total           NUMERIC(10,2) NOT NULL DEFAULT 0,
   fecha           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fecha_pago      TIMESTAMPTZ,
@@ -112,6 +108,77 @@ ALTER TABLE public.detalle_pedidos
   CHECK (destino_servicio IN ('local', 'llevar'));
 CREATE INDEX IF NOT EXISTS idx_detalle_destino ON public.detalle_pedidos(destino_servicio);
 CREATE INDEX IF NOT EXISTS idx_productos_cat ON public.productos(categoria);
+ALTER TABLE public.usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
+ALTER TABLE public.usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('superadmin', 'admin', 'gerente', 'mesero', 'cocinero', 'cajero'));
+ALTER TABLE public.pedidos ADD COLUMN IF NOT EXISTS metodo_pago TEXT;
+ALTER TABLE public.pedidos DROP CONSTRAINT IF EXISTS pedidos_metodo_pago_check;
+ALTER TABLE public.pedidos ADD CONSTRAINT pedidos_metodo_pago_check CHECK (metodo_pago IN ('efectivo', 'tarjeta') OR metodo_pago IS NULL);
+
+CREATE TABLE IF NOT EXISTS public.auditoria (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id_usuario UUID REFERENCES public.usuarios(id) ON DELETE SET NULL,
+  accion TEXT NOT NULL,
+  entidad TEXT NOT NULL,
+  entidad_id UUID,
+  detalle JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON public.auditoria(created_at);
+CREATE INDEX IF NOT EXISTS idx_auditoria_entidad ON public.auditoria(entidad, entidad_id);
+
+CREATE TABLE IF NOT EXISTS public.intentos_login (
+  clave TEXT PRIMARY KEY,
+  intentos INT NOT NULL DEFAULT 0,
+  bloqueado_hasta TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION public.registrar_auditoria()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_row JSONB;
+  v_id UUID;
+BEGIN
+  v_row := CASE WHEN TG_OP = 'DELETE' THEN to_jsonb(OLD) ELSE to_jsonb(NEW) END;
+  v_id := NULLIF(v_row->>'id', '')::UUID;
+  INSERT INTO public.auditoria (id_usuario, accion, entidad, entidad_id, detalle)
+  VALUES (
+    NULLIF(current_setting('app.user_id', true), '')::UUID,
+    lower(TG_OP), TG_TABLE_NAME, v_id,
+    jsonb_build_object('antes', CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) - 'password_hash' ELSE NULL END,
+                       'despues', CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) - 'password_hash' ELSE NULL END)
+  );
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.login_puede_intentar(p_clave TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_until TIMESTAMPTZ;
+BEGIN
+  SELECT bloqueado_hasta INTO v_until FROM public.intentos_login WHERE clave = lower(trim(p_clave));
+  RETURN v_until IS NULL OR v_until <= NOW();
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.login_fallido(p_clave TEXT)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.intentos_login (clave, intentos, bloqueado_hasta, updated_at)
+  VALUES (lower(trim(p_clave)), 1, NULL, NOW())
+  ON CONFLICT (clave) DO UPDATE SET
+    intentos = CASE WHEN intentos_login.bloqueado_hasta IS NOT NULL AND intentos_login.bloqueado_hasta <= NOW() THEN 1 ELSE intentos_login.intentos + 1 END,
+    bloqueado_hasta = CASE
+      WHEN (CASE WHEN intentos_login.bloqueado_hasta IS NOT NULL AND intentos_login.bloqueado_hasta <= NOW() THEN 1 ELSE intentos_login.intentos + 1 END) >= 5
+      THEN NOW() + INTERVAL '15 minutes' ELSE NULL END,
+    updated_at = NOW();
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.login_exitoso(p_clave TEXT)
+RETURNS VOID LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+  DELETE FROM public.intentos_login WHERE clave = lower(trim(p_clave));
+$$;
 
 -- Una mesa = un pedido abierto (bloqueo real en BD)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_mesa_un_pedido_abierto
@@ -138,7 +205,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.is_staff()
 RETURNS BOOLEAN
 LANGUAGE sql STABLE AS $$
-  SELECT public.current_app_role() IN ('gerente', 'mesero', 'cocinero', 'cajero');
+  SELECT public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cocinero', 'cajero');
 $$;
 
 -- Login sin exponer hashes por SELECT abierto
@@ -258,7 +325,8 @@ BEGIN
     END IF;
     IF (NEW.id_producto IS DISTINCT FROM OLD.id_producto
         OR NEW.variante IS DISTINCT FROM OLD.variante
-        OR NEW.notas IS DISTINCT FROM OLD.notas)
+        OR NEW.notas IS DISTINCT FROM OLD.notas
+        OR NEW.destino_servicio IS DISTINCT FROM OLD.destino_servicio)
        AND OLD.estado_cocina NOT IN ('borrador', 'pendiente') THEN
       RAISE EXCEPTION 'Solo se pueden modificar platillos antes de que comiencen a prepararse'
         USING ERRCODE = 'P0002';
@@ -400,6 +468,19 @@ CREATE TRIGGER trg_rt_detalle
   AFTER INSERT OR UPDATE OR DELETE ON public.detalle_pedidos
   FOR EACH ROW EXECUTE FUNCTION public.notify_pos_event();
 
+DROP TRIGGER IF EXISTS trg_audit_pedidos ON public.pedidos;
+CREATE TRIGGER trg_audit_pedidos AFTER INSERT OR UPDATE OR DELETE ON public.pedidos
+  FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
+DROP TRIGGER IF EXISTS trg_audit_detalle ON public.detalle_pedidos;
+CREATE TRIGGER trg_audit_detalle AFTER INSERT OR UPDATE OR DELETE ON public.detalle_pedidos
+  FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
+DROP TRIGGER IF EXISTS trg_audit_productos ON public.productos;
+CREATE TRIGGER trg_audit_productos AFTER INSERT OR UPDATE OR DELETE ON public.productos
+  FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
+DROP TRIGGER IF EXISTS trg_audit_usuarios ON public.usuarios;
+CREATE TRIGGER trg_audit_usuarios AFTER INSERT OR UPDATE OR DELETE ON public.usuarios
+  FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
+
 -- ─────────────────────────────────────────────
 -- RLS
 -- ─────────────────────────────────────────────
@@ -408,24 +489,26 @@ ALTER TABLE public.mesas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.productos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pedidos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detalle_pedidos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.auditoria ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.usuarios FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.mesas FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.productos FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.pedidos FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.detalle_pedidos FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.auditoria FORCE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS usuarios_select ON public.usuarios;
 CREATE POLICY usuarios_select ON public.usuarios FOR SELECT
   USING (
     id = public.current_app_user_id()
-    OR public.current_app_role() = 'gerente'
+    OR public.current_app_role() IN ('superadmin', 'admin', 'gerente')
   );
 
 DROP POLICY IF EXISTS usuarios_write_gerente ON public.usuarios;
 CREATE POLICY usuarios_write_gerente ON public.usuarios FOR ALL
-  USING (public.current_app_role() = 'gerente')
-  WITH CHECK (public.current_app_role() = 'gerente');
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente'))
+  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente'));
 
 DROP POLICY IF EXISTS mesas_select ON public.mesas;
 CREATE POLICY mesas_select ON public.mesas FOR SELECT
@@ -433,7 +516,7 @@ CREATE POLICY mesas_select ON public.mesas FOR SELECT
 
 DROP POLICY IF EXISTS mesas_write ON public.mesas;
 CREATE POLICY mesas_write ON public.mesas FOR UPDATE
-  USING (public.current_app_role() IN ('gerente', 'mesero', 'cajero'));
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero'));
 
 DROP POLICY IF EXISTS productos_select ON public.productos;
 CREATE POLICY productos_select ON public.productos FOR SELECT
@@ -441,8 +524,8 @@ CREATE POLICY productos_select ON public.productos FOR SELECT
 
 DROP POLICY IF EXISTS productos_write ON public.productos;
 CREATE POLICY productos_write ON public.productos FOR ALL
-  USING (public.current_app_role() = 'gerente')
-  WITH CHECK (public.current_app_role() = 'gerente');
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente'))
+  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente'));
 
 DROP POLICY IF EXISTS pedidos_select ON public.pedidos;
 CREATE POLICY pedidos_select ON public.pedidos FOR SELECT
@@ -451,13 +534,13 @@ CREATE POLICY pedidos_select ON public.pedidos FOR SELECT
 DROP POLICY IF EXISTS pedidos_insert ON public.pedidos;
 CREATE POLICY pedidos_insert ON public.pedidos FOR INSERT
   WITH CHECK (
-    public.current_app_role() IN ('gerente', 'mesero', 'cajero')
+    public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero')
     AND id_usuario = public.current_app_user_id()
   );
 
 DROP POLICY IF EXISTS pedidos_update ON public.pedidos;
 CREATE POLICY pedidos_update ON public.pedidos FOR UPDATE
-  USING (public.current_app_role() IN ('gerente', 'mesero', 'cajero'));
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero'));
 
 DROP POLICY IF EXISTS detalle_select ON public.detalle_pedidos;
 CREATE POLICY detalle_select ON public.detalle_pedidos FOR SELECT
@@ -466,7 +549,7 @@ CREATE POLICY detalle_select ON public.detalle_pedidos FOR SELECT
 DROP POLICY IF EXISTS detalle_insert ON public.detalle_pedidos;
 CREATE POLICY detalle_insert ON public.detalle_pedidos FOR INSERT
   WITH CHECK (
-    public.current_app_role() IN ('gerente', 'mesero', 'cajero')
+    public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero')
     AND EXISTS (
       SELECT 1 FROM public.pedidos p
       WHERE p.id = id_pedido AND p.estado_pago = 'pendiente'
@@ -476,12 +559,16 @@ CREATE POLICY detalle_insert ON public.detalle_pedidos FOR INSERT
 DROP POLICY IF EXISTS detalle_update ON public.detalle_pedidos;
 CREATE POLICY detalle_update ON public.detalle_pedidos FOR UPDATE
   USING (
-    public.current_app_role() IN ('gerente', 'cocinero', 'mesero', 'cajero')
+    public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cocinero', 'mesero', 'cajero')
   );
 
 DROP POLICY IF EXISTS detalle_delete ON public.detalle_pedidos;
 CREATE POLICY detalle_delete ON public.detalle_pedidos FOR DELETE
-  USING (public.current_app_role() IN ('gerente', 'mesero', 'cajero'));
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero'));
+
+DROP POLICY IF EXISTS auditoria_select ON public.auditoria;
+CREATE POLICY auditoria_select ON public.auditoria FOR SELECT
+  USING (public.current_app_role() IN ('superadmin', 'admin'));
 
 -- ─────────────────────────────────────────────
 -- PERMISOS
@@ -494,8 +581,14 @@ $$;
 GRANT USAGE ON SCHEMA public TO pupuseria_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pupuseria_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO pupuseria_app;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO pupuseria_app;
+REVOKE ALL ON FUNCTION public.login_lookup(TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.login_puede_intentar(TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.login_fallido(TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.login_exitoso(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.login_lookup(TEXT) TO pupuseria_app;
+GRANT EXECUTE ON FUNCTION public.login_puede_intentar(TEXT) TO pupuseria_app;
+GRANT EXECUTE ON FUNCTION public.login_fallido(TEXT) TO pupuseria_app;
+GRANT EXECUTE ON FUNCTION public.login_exitoso(TEXT) TO pupuseria_app;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO pupuseria_app;
@@ -525,10 +618,5 @@ INSERT INTO public.productos (nombre, categoria, precio, especialidad, sort_orde
   ('Ensalada de curtido',      'extra',  0.00, NULL, 30)
 ON CONFLICT DO NOTHING;
 
--- Contraseñas: gerente123 / mesero123 / cocina123 / caja123
-INSERT INTO public.usuarios (email, password_hash, nombre, rol) VALUES
-  ('gerente@pupuseria.local', '$2b$10$PXJai04BdNHtfQEz5fDjBeJStMrMf1GKPjLuCydJdflEVKZKQXxta', 'Ana Gerente', 'gerente'),
-  ('mesero@pupuseria.local',  '$2b$10$MZSf39LBBdpCL.Q8GBW4luCexeK3VdqsPJktX7UKIBQbZ1O18Vzyy', 'Luis Mesero', 'mesero'),
-  ('cocina@pupuseria.local',  '$2b$10$5YnA5okjl9wzYVvkO5eS8eRM.I6RuV9z2V7SpOHAnkdRnbxlXywC.', 'Rosa Cocina', 'cocinero'),
-  ('caja@pupuseria.local',    '$2b$10$zWciIK8Fehhlb2ZDB62Fqed/DQ2hBhC/LFUHDLUmpX.zrEgOHdHKi', 'Mario Caja', 'cajero')
-ON CONFLICT (email) DO NOTHING;
+-- Las cuentas iniciales se crean desde scripts/setup-db.mjs usando variables
+-- privadas BOOTSTRAP_*; no se incluyen usuarios ni contraseñas en Git.

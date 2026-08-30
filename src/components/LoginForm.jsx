@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 
 export default function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("gerente@pupuseria.local");
-  const [password, setPassword] = useState("gerente123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -51,11 +51,6 @@ export default function LoginForm() {
       <button disabled={saving} className="btn-primary mt-6 w-full">
         {saving ? "Entrando…" : "Entrar"}
       </button>
-      <p className="mt-6 text-[11px] leading-relaxed text-mute">
-        gerente@ · mesero@ · cocina@ · caja@ (pupuseria.local)
-        <br />
-        Contraseñas: gerente123, mesero123, cocina123, caja123
-      </p>
     </form>
   );
 }

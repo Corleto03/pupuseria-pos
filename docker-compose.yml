@@ -3,9 +3,9 @@ services:
     image: postgres:16-alpine
     container_name: pupuseria-pg
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: pupuseria
+      POSTGRES_USER: ${POSTGRES_USER:?Define POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-pupuseria}
     ports:
       - "5432:5432"
     volumes:

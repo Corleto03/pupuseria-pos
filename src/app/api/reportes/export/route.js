@@ -15,15 +15,24 @@ function rango(periodo) {
   return { start, end };
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 export async function GET(request) {
-  const { user, error } = await requireUser(["gerente"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente"]);
   if (error) return error;
   const periodo = new URL(request.url).searchParams.get("periodo") || "dia";
   const { start, end } = rango(periodo);
 
   const { rows } = await withUser(user, (c) =>
     c.query(
-      `SELECT p.id AS pedido_id, p.fecha, p.nombre_control, p.tipo_pedido, p.total AS total_pedido,
+      `SELECT p.id AS pedido_id, p.fecha, p.nombre_control, p.tipo_pedido, p.metodo_pago, p.total AS total_pedido,
               m.numero AS mesa_numero, u.nombre AS mesero_nombre,
               pr.nombre AS producto, d.variante, d.cantidad, d.precio_unitario, d.notas,
               (d.cantidad * d.precio_unitario)::float AS subtotal
@@ -131,7 +140,7 @@ export async function GET(request) {
     html += `
         <tr class="order-row">
           <td class="date-cell">${dateFormatted}</td>
-          <td colspan="3">${refText} &nbsp;&nbsp;|&nbsp;&nbsp; <span style="font-weight: normal; color: #555555;">Atendido por: ${o.mesero_nombre || "N/A"}</span></td>
+          <td colspan="3">${escapeHtml(refText)} &nbsp;&nbsp;|&nbsp;&nbsp; <span style="font-weight: normal; color: #555555;">Atendido por: ${escapeHtml(o.mesero_nombre || "N/A")}</span></td>
           <td style="text-align: right; font-weight: bold; background-color: #f3f4f6;">Total Orden:</td>
           <td class="currency order-total-cell" style="background-color: #f3f4f6;">${o.total_pedido}</td>
         </tr>
@@ -142,10 +151,10 @@ export async function GET(request) {
         <tr>
           <td style="color: #9ca3af; font-family: monospace; font-size: 10px;">${item.pedido_id.slice(0, 8)}...</td>
           <td>
-            ${item.producto}
-            ${item.notas ? `<br/><span style="font-size: 9px; color: #dc2626; font-style: italic;">Nota: ${item.notas}</span>` : ""}
+            ${escapeHtml(item.producto)}
+            ${item.notas ? `<br/><span style="font-size: 9px; color: #dc2626; font-style: italic;">Nota: ${escapeHtml(item.notas)}</span>` : ""}
           </td>
-          <td class="text-center">${item.variante || "-"}</td>
+          <td class="text-center">${escapeHtml(item.variante || "-")}</td>
           <td class="number">${item.cantidad}</td>
           <td class="currency">${item.precio_unitario}</td>
           <td class="currency" style="font-weight: 500;">${item.subtotal}</td>

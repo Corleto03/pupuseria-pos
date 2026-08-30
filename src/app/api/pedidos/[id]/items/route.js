@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/api";
 import { pgError, withUser } from "@/lib/db";
 
 export async function POST(request, { params }) {
-  const { user, error } = await requireUser(["gerente", "mesero", "cajero"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente", "mesero", "cajero"]);
   if (error) return error;
   const { id } = await params;
   const body = await request.json();

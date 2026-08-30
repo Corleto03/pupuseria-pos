@@ -7,6 +7,7 @@ import { useRealtime } from "@/hooks/useRealtime";
 import { useToast } from "@/components/Toast";
 import { fmt } from "@/lib/formatters";
 import clsx from "clsx";
+import { printTicket } from "@/lib/printTicket";
 
 function ready(p) {
   const dets = p.detalles || [];
@@ -33,16 +34,17 @@ export default function CajaPage() {
   }, [load]);
   useRealtime(load);
 
-  async function confirmar() {
+  async function confirmar(_pedido, pago) {
     setSaving(true);
     const res = await fetch(`/api/pedidos/${cobrar.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accion: "cobrar" }),
+      body: JSON.stringify({ accion: "cobrar", ...pago }),
     });
     const data = await res.json();
     setSaving(false);
     if (!res.ok) return toast(data.error, "err");
+    if (pago.imprimir) await printTicket(cobrar.id);
     toast("Cobro registrado");
     setCobrar(null);
     load();

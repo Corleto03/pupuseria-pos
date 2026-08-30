@@ -20,9 +20,9 @@ docker compose up -d
 npm run db:setup
 ```
 
-Sin Docker, crea la base `pupuseria` y un usuario admin en `DATABASE_ADMIN_URL`, copia `env.example` a `.env.local` y corre `npm run db:setup`.
+Sin Docker, crea la base `pupuseria`, configura tus variables privadas en `.env.local` y corre `npm run db:setup`.
 
-El script aplica `sql/01_schema.sql`: tablas, bloqueo de mesa, cobro, RLS, notificaciones en vivo y datos de prueba.
+El script aplica `sql/01_schema.sql`: tablas, bloqueo de mesa, cobro, RLS, auditoría y notificaciones en vivo. Antes, configura las credenciales privadas y las cuentas iniciales `BOOTSTRAP_SUPERADMIN_*` y `BOOTSTRAP_ADMIN_*` a partir de `.env.example`.
 
 ### 2. App
 
@@ -33,14 +33,9 @@ npm run dev
 
 Abre [http://localhost:3000](http://localhost:3000)
 
-## Usuarios de prueba
+## Usuarios
 
-| Rol | Email | Contraseña |
-|-----|--------|------------|
-| Gerente | gerente@pupuseria.local | gerente123 |
-| Mesero | mesero@pupuseria.local | mesero123 |
-| Cocinero | cocina@pupuseria.local | cocina123 |
-| Cajero | caja@pupuseria.local | caja123 |
+Las cuentas deben crearse o cambiarse mediante un procedimiento administrativo seguro. No se documentan credenciales en el repositorio.
 
 ## Módulos
 
@@ -63,7 +58,7 @@ Triggers en `mesas`, `pedidos` y `detalle_pedidos` hacen `NOTIFY pos_events`. La
 - Sesión por transacción: `app.role` y `app.user_id`
 - El cobro y el candado de mesa están en PostgreSQL, no solo en la UI
 
-Cambia `JWT_SECRET` y las contraseñas de Postgres antes de usarlo en un local real.
+`JWT_SECRET`, `DATABASE_URL` y cualquier contraseña deben configurarse únicamente como variables privadas del entorno. Nunca las publiques en el repositorio.
 
 ## Railway
 

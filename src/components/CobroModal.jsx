@@ -6,10 +6,12 @@ import { useMemo, useState } from "react";
 
 export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
   const [monto, setMonto] = useState("");
+  const [metodo, setMetodo] = useState("efectivo");
+  const [imprimir, setImprimir] = useState(true);
   const total = Number(pedido.total);
   const recibido = parseFloat(monto) || 0;
   const vuelto = recibido - total;
-  const valido = recibido >= total;
+  const valido = metodo === "tarjeta" || recibido >= total;
   const pendientes = useMemo(
     () => (pedido.detalles || []).filter((d) => d.estado_cocina !== "entregado").length,
     [pedido]
@@ -37,27 +39,21 @@ export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
         {pendientes > 0 && (
           <p className="mt-3 text-xs text-wine">Aún hay {pendientes} producto(s) sin entregar. El cobro está bloqueado.</p>
         )}
-        <label className="mt-4 block text-xs text-mute">Efectivo recibido</label>
-        <input
-          autoFocus
-          type="number"
-          min={total}
-          step="0.25"
-          className="input mt-1"
-          value={monto}
-          onChange={(e) => setMonto(e.target.value)}
-        />
-        <div className="mt-3 flex justify-between text-sm">
-          <span className="text-mute">Vuelto</span>
-          <span className={valido ? "text-moss" : "text-mute"}>{monto ? fmt.money(vuelto) : "—"}</span>
-        </div>
+        <label className="mt-4 block text-xs text-mute">Método de pago</label>
+        <select className="input mt-1" value={metodo} onChange={(e) => setMetodo(e.target.value)}>
+          <option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option>
+        </select>
+        {metodo === "efectivo" && <><label className="mt-4 block text-xs text-mute">Efectivo recibido</label>
+          <input autoFocus type="number" min={total} step="0.25" className="input mt-1" value={monto} onChange={(e) => setMonto(e.target.value)} />
+          <div className="mt-3 flex justify-between text-sm"><span className="text-mute">Vuelto</span><span className={valido ? "text-moss" : "text-mute"}>{monto ? fmt.money(vuelto) : "—"}</span></div></>}
+        <label className="mt-4 flex items-center gap-2 text-xs text-mute"><input type="checkbox" checked={imprimir} onChange={(e) => setImprimir(e.target.checked)} /> Imprimir ticket al confirmar</label>
         <div className="mt-5 flex gap-2">
           <button onClick={onClose} className="btn-ghost flex-1">
             Cancelar
           </button>
           <button
             disabled={!valido || pendientes > 0 || saving}
-            onClick={() => onConfirm(pedido)}
+            onClick={() => onConfirm(pedido, { metodo_pago: metodo, imprimir })}
             className="btn-primary flex-1"
           >
             Confirmar

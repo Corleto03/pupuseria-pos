@@ -575,16 +575,28 @@ CREATE POLICY auditoria_select ON public.auditoria FOR SELECT
 -- ─────────────────────────────────────────────
 DO $$
 BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'pupuseria_app') THEN
+    CREATE ROLE pupuseria_app WITH LOGIN;
+  END IF;
+END
+$$;
+
+-- 2. Asignar permisos al rol creado
+DO $$
+BEGIN
   EXECUTE format('GRANT CONNECT ON DATABASE %I TO pupuseria_app', current_database());
 END
 $$;
+
 GRANT USAGE ON SCHEMA public TO pupuseria_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pupuseria_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO pupuseria_app;
+
 REVOKE ALL ON FUNCTION public.login_lookup(TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.login_puede_intentar(TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.login_fallido(TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.login_exitoso(TEXT) FROM PUBLIC;
+
 GRANT EXECUTE ON FUNCTION public.login_lookup(TEXT) TO pupuseria_app;
 GRANT EXECUTE ON FUNCTION public.login_puede_intentar(TEXT) TO pupuseria_app;
 GRANT EXECUTE ON FUNCTION public.login_fallido(TEXT) TO pupuseria_app;

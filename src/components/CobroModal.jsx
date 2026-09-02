@@ -3,27 +3,19 @@
 import { fmt } from "@/lib/formatters";
 import { X } from "lucide-react";
 import { useMemo, useState } from "react";
-import clsx from "clsx";
 
 export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
+  const [localPedido, setLocalPedido] = useState(pedido);
   const [monto, setMonto] = useState("");
   const [montoEfectivo, setMontoEfectivo] = useState("");
   const [montoTarjeta, setMontoTarjeta] = useState("");
   const [metodo, setMetodo] = useState("efectivo");
   const [imprimir, setImprimir] = useState(true);
-  const total = useMemo(() => {
-    if (pedido.detalles && pedido.detalles.length > 0) {
-      return pedido.detalles.reduce((acc, d) => {
-        if (d.estado_cocina === "no_entregado") return acc;
-        return acc + (Number(d.precio_unitario ?? d.precio ?? 0) * d.cantidad);
-      }, 0);
-    }
-    return Number(pedido.total) || 0;
-  }, [pedido]);
-
+  const total = Number(localPedido.total);
+  
   const recibido = parseFloat(monto) || 0;
   const vuelto = recibido - total;
-
+  
   const recibidoEfectivo = parseFloat(montoEfectivo) || 0;
   const recibidoTarjeta = parseFloat(montoTarjeta) || 0;
 
@@ -32,10 +24,51 @@ export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
     (metodo === "efectivo" && recibido >= total) ||
     (metodo === "mixto" && (recibidoEfectivo + recibidoTarjeta) >= total);
 
+  const [itemToCancel, setItemToCancel] = useState(null);
+  const [motivoCancel, setMotivoCancel] = useState("");
+  const [qtyCancel, setQtyCancel] = useState(1);
+  const [canceling, setCanceling] = useState(false);
+
   const pendientes = useMemo(
-    () => (pedido.detalles || []).filter((d) => !["entregado", "no_entregado"].includes(d.estado_cocina)).length,
-    [pedido]
+    () => (localPedido.detalles || []).filter((d) => !["entregado", "cancelado"].includes(d.estado_cocina)).length,
+    [localPedido]
   );
+
+  async function handleCancelItem() {
+    if (!itemToCancel) return;
+    setCanceling(true);
+    try {
+      const res = await fetch(`/api/pedidos/${localPedido.id}/items/${itemToCancel.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          estado_cocina: "cancelado",
+          cantidad: qtyCancel,
+          motivo_cancelacion: motivoCancel || "Anulado desde caja por administración",
+        }),
+      });
+      const data = await res.json();
+      setCanceling(false);
+      if (!res.ok) alert(data.error || "Error al anular ítem");
+      else {
+        setItemToCancel(null);
+        setMotivoCancel("");
+        setQtyCancel(1);
+        
+        // Fetch the fresh updated order
+        const resPed = await fetch(`/api/pedidos/${localPedido.id}`);
+        const dataPed = await resPed.json();
+        if (dataPed.pedido) {
+          setLocalPedido(dataPed.pedido);
+        }
+        
+        if (onConfirm) onConfirm(null, { refreshOnly: true });
+      }
+    } catch {
+      setCanceling(false);
+      alert("Error de conexión");
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
@@ -48,48 +81,85 @@ export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
         </div>
         <div className="space-y-1 rounded-xl bg-paper px-3 py-3 text-sm">
           <div className="flex justify-between text-mute">
-            <span>{pedido.tipo_pedido === "local" ? `Mesa ${pedido.mesa_numero}` : "Para llevar"}</span>
-            <span>{pedido.nombre_control}</span>
+            <span>{localPedido.tipo_pedido === "local" ? `Mesa ${localPedido.mesa_numero}` : "Para llevar"}</span>
+            <span>{localPedido.nombre_control}</span>
           </div>
-          <div className="flex justify-between border-t border-line pt-2 font-medium">
-            <span>Total</span>
-            <span>{fmt.money(total)}</span>
+          <div className="mt-2 max-h-32 overflow-y-auto border-t border-b border-line py-2 space-y-1 text-xs">
+            {(localPedido.detalles || []).map((d) => (
+              <div key={d.id} className="flex items-center justify-between">
+                <span className={d.estado_cocina === "cancelado" ? "line-through text-mute" : ""}>
+                  {d.cantidad}x {d.producto_nombre || "Producto"} {d.variante ? `(${d.variante})` : ""}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className={d.estado_cocina === "cancelado" ? "text-wine" : "font-medium"}>
+                    {d.estado_cocina === "cancelado" ? "Anulado" : fmt.money(d.precio_unitario * d.cantidad)}
+                  </span>
+                  {d.estado_cocina !== "cancelado" && (
+                    <button
+                      type="button"
+                      title="Anular platillo"
+                      onClick={() => {
+                        setItemToCancel(d);
+                        setQtyCancel(d.cantidad);
+                      }}
+                      className="text-wine text-[10px] underline hover:text-red-700"
+                    >
+                      Anular
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between pt-1 font-medium">
+            <span>Total a pagar</span>
+            <span className="text-base text-wine">{fmt.money(total)}</span>
           </div>
         </div>
-        {/* Detalle del pedido */}
-        {pedido.detalles && pedido.detalles.length > 0 && (
-          <div className="mt-4 rounded-xl bg-stone-50 border border-line p-3">
-            <h4 className="text-xs font-semibold text-mute uppercase tracking-wider mb-2">Detalle del pedido</h4>
-            <ul className="space-y-1.5 text-xs max-h-36 overflow-y-auto pr-1">
-              {pedido.detalles.map((d) => (
-                <li key={d.id} className="flex justify-between items-center py-0.5">
-                  <span className={clsx(d.estado_cocina === "no_entregado" && "line-through text-mute")}>
-                    {d.cantidad} × {d.producto_nombre || d.producto?.nombre || d.nombre}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className={clsx("font-medium", d.estado_cocina === "no_entregado" && "line-through text-mute")}>
-                      {d.estado_cocina === "no_entregado"
-                        ? "$0.00"
-                        : fmt.money((d.precio_unitario ?? d.precio ?? 0) * d.cantidad)}
-                    </span>
-                    <span
-                      className={clsx(
-                        "text-[10px] font-semibold px-1.5 py-0.5 rounded",
-                        d.estado_cocina === "entregado"
-                          ? "bg-emerald-100 text-emerald-800"
-                          : d.estado_cocina === "no_entregado"
-                          ? "bg-stone-200 text-stone-600 line-through"
-                          : "bg-amber-100 text-amber-800"
-                      )}
-                    >
-                      {d.estado_cocina === "no_entregado" ? "No entregado" : d.estado_cocina}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+
+        {itemToCancel && (
+          <div className="mt-3 rounded-lg border border-wine/30 bg-wine/5 p-3 text-xs">
+            <p className="font-semibold text-wine">Anular: {itemToCancel.producto_nombre}</p>
+            {itemToCancel.cantidad > 1 && (
+              <div className="mt-2">
+                <label className="block text-mute mb-1">Cantidad a anular:</label>
+                <input
+                  type="number"
+                  min="1"
+                  max={itemToCancel.cantidad}
+                  className="input bg-white text-xs"
+                  value={qtyCancel}
+                  onChange={(e) => setQtyCancel(parseInt(e.target.value) || 1)}
+                />
+              </div>
+            )}
+            <input
+              type="text"
+              placeholder="Motivo (ej. Plato agotado, error de entrega)..."
+              className="input mt-2 bg-white text-xs"
+              value={motivoCancel}
+              onChange={(e) => setMotivoCancel(e.target.value)}
+            />
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setItemToCancel(null)}
+                className="btn-ghost py-1 text-xs"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={canceling}
+                onClick={handleCancelItem}
+                className="btn-primary bg-wine py-1 text-xs"
+              >
+                {canceling ? "Anulando..." : "Confirmar Anulación"}
+              </button>
+            </div>
           </div>
         )}
+
         {pendientes > 0 && (
           <p className="mt-3 text-xs text-wine">Aún hay {pendientes} producto(s) sin entregar. El cobro está bloqueado.</p>
         )}
@@ -149,7 +219,7 @@ export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
           </button>
           <button
             disabled={!valido || pendientes > 0 || saving}
-            onClick={() => onConfirm(pedido, { 
+            onClick={() => onConfirm(localPedido, { 
               metodo_pago: metodo, 
               pago_efectivo: metodo === "efectivo" ? total : (metodo === "mixto" ? recibidoEfectivo : 0),
               pago_tarjeta: metodo === "tarjeta" ? total : (metodo === "mixto" ? recibidoTarjeta : 0),

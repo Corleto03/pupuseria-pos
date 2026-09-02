@@ -14,8 +14,8 @@ const display = Fraunces({
 });
 
 export const metadata = {
-  title: "La Pupusa — POS",
-  description: "Punto de venta y cocina para pupusería",
+  title: "OceanSis — POS",
+  description: "Sistema Punto de Venta (POS) y cocina",
 };
 
 export default function RootLayout({ children }) {

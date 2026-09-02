@@ -7,13 +7,21 @@ export async function printTicket(pedidoId) {
   if (!pedido) return;
 
   const config = resConf ? await resConf.json().catch(() => ({})) : {};
-  const restName = config.nombre_restaurante || "La Pupusa";
+  const restName = config.nombre_restaurante || "OceanSis";
   const logoUrl = config.logo_url || "";
 
   const win = window.open("", "_blank", "width=420,height=640");
   if (!win) return;
   const esc = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-  const items = pedido.detalles.map((d) => `<tr><td>${d.cantidad}× ${esc(d.producto_nombre)}${d.variante ? ` · ${esc(d.variante)}` : ""}</td><td style="text-align:right">$${(Number(d.precio_unitario) * d.cantidad).toFixed(2)}</td></tr>`).join("");
+
+  const entregadosYCancelados = (pedido.detalles || []).filter((d) => d.estado_cocina === "entregado" || d.estado_cocina === "cancelado");
+  const detallesAImprimir = entregadosYCancelados.length > 0 ? entregadosYCancelados : (pedido.detalles || []);
+  const items = detallesAImprimir.map((d) => {
+    if (d.estado_cocina === "cancelado") {
+      return `<tr style="color: #888; text-decoration: line-through;"><td>${d.cantidad}× ${esc(d.producto_nombre)} [NE]</td><td style="text-align:right">$0.00</td></tr>`;
+    }
+    return `<tr><td>${d.cantidad}× ${esc(d.producto_nombre)}${d.variante ? ` · ${esc(d.variante)}` : ""}</td><td style="text-align:right">$${(Number(d.precio_unitario) * d.cantidad).toFixed(2)}</td></tr>`;
+  }).join("");
   
   const logoHtml = logoUrl ? `<div style="text-align:center;margin-bottom:8px;"><img src="${logoUrl}" style="max-height:60px;max-width:100%;object-fit:contain;" /></div>` : "";
   

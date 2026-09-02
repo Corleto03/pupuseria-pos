@@ -7,7 +7,7 @@ export async function PATCH(request, { params }) {
   const body = await request.json();
 
   const roles = body.estado_cocina
-    ? ["superadmin", "admin", "gerente", "cocinero"]
+    ? ["superadmin", "admin", "gerente", "cocinero", "cajero"]
     : ["superadmin", "admin", "gerente", "mesero", "cajero"];
   const { user, error } = await requireUser(roles);
   if (error) return error;
@@ -32,8 +32,8 @@ export async function PATCH(request, { params }) {
               );
               // 2. Create the new item in the new state
               const insertedNew = await c.query(
-                `INSERT INTO detalle_pedidos (id_pedido, id_producto, cantidad, estado_cocina, notas, variante, destino_servicio, precio_unitario)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                `INSERT INTO detalle_pedidos (id_pedido, id_producto, cantidad, estado_cocina, notas, variante, destino_servicio, precio_unitario, motivo_cancelacion, cancelado_por, fecha_cancelacion)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $4 = 'cancelado' THEN NOW() ELSE NULL END)
                  RETURNING *`,
                 [
                   id,
@@ -44,19 +44,25 @@ export async function PATCH(request, { params }) {
                   current.variante,
                   current.destino_servicio,
                   current.precio_unitario,
+                  body.motivo_cancelacion || null,
+                  body.estado_cocina === 'cancelado' ? user.id : null,
                 ]
               );
               return insertedNew;
             }
           }
         }
-        if (!['borrador', 'pendiente', 'preparacion', 'entregado', 'no_entregado'].includes(body.estado_cocina)) {
+        if (!['borrador', 'pendiente', 'preparacion', 'entregado', 'cancelado'].includes(body.estado_cocina)) {
           throw Object.assign(new Error("Estado de cocina no válido"), { code: "P0001" });
         }
         return c.query(
-          `UPDATE detalle_pedidos SET estado_cocina = $1
+          `UPDATE detalle_pedidos SET 
+             estado_cocina = $1,
+             motivo_cancelacion = COALESCE($4, motivo_cancelacion),
+             cancelado_por = CASE WHEN $1 = 'cancelado' THEN $5 ELSE cancelado_por END,
+             fecha_cancelacion = CASE WHEN $1 = 'cancelado' THEN NOW() ELSE fecha_cancelacion END
            WHERE id = $2 AND id_pedido = $3 RETURNING *`,
-          [body.estado_cocina, detalleId, id]
+          [body.estado_cocina, detalleId, id, body.motivo_cancelacion || null, user.id]
         );
       }
       if (body.cantidad != null) {

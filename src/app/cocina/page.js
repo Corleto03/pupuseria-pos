@@ -3,11 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Shell from "@/components/Shell";
 import { useRealtime } from "@/hooks/useRealtime";
-import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/components/Toast";
 import { ESTADO_COCINA, fmt } from "@/lib/formatters";
 import clsx from "clsx";
-import ConfirmModal from "@/components/ConfirmModal";
 
 function groupByEstado(detalles) {
   return {
@@ -18,9 +15,6 @@ function groupByEstado(detalles) {
 }
 
 export default function CocinaPage() {
-  const { user } = useAuth();
-  const toast = useToast();
-  const isAdmin = user && ["superadmin", "admin", "gerente"].includes(user.rol);
   const [pedidos, setPedidos] = useState([]);
   const [selectedItems, setSelectedItems] = useState({}); // { [detalleId]: boolean }
   const [activeSplit, setActiveSplit] = useState(null); // detalleId
@@ -45,55 +39,6 @@ export default function CocinaPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ estado_cocina: next }),
     });
-    load();
-  }
-
-  // State for admin action modal (No entregado or Retirar, with quantity selection)
-  const [adminActionModal, setAdminActionModal] = useState({
-    isOpen: false,
-    actionType: null, // "no_entregado" | "retirar"
-    pedidoId: null,
-    detalle: null,
-    cantidad: 1,
-  });
-
-  function openAdminAction(actionType, pedidoId, d) {
-    setAdminActionModal({
-      isOpen: true,
-      actionType,
-      pedidoId,
-      detalle: d,
-      cantidad: d.cantidad > 1 ? d.cantidad : 1,
-    });
-  }
-
-  function closeAdminModal() {
-    setAdminActionModal({
-      isOpen: false,
-      actionType: null,
-      pedidoId: null,
-      detalle: null,
-      cantidad: 1,
-    });
-  }
-
-  async function confirmAdminAction() {
-    const { actionType, pedidoId, detalle, cantidad } = adminActionModal;
-    if (!detalle) return;
-
-    if (actionType === "no_entregado") {
-      const res = await fetch(`/api/pedidos/${pedidoId}/items/${detalle.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estado_cocina: "no_entregado", cantidad }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        return toast(data.error || "Error al marcar ítem", "err");
-      }
-      toast(`${cantidad} unidad(es) marcada(s) como No Entregado`);
-    }
-    closeAdminModal();
     load();
   }
 
@@ -139,6 +84,7 @@ export default function CocinaPage() {
   }
 
   function handleItemClick(pedidoId, d) {
+    if (d.estado_cocina === "entregado") return;
     if (d.cantidad > 1) {
       setActiveSplit(d.id);
       setSplitQty(1);
@@ -260,6 +206,26 @@ export default function CocinaPage() {
                                     >
                                       Todo ({d.cantidad})
                                     </button>
+                                    {col.key !== "entregado" && (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          const reason = prompt("Motivo de cancelación (ej. Agotado):", "Platillo agotado en cocina");
+                                          if (reason !== null) {
+                                            await fetch(`/api/pedidos/${p.id}/items/${d.id}`, {
+                                              method: "PATCH",
+                                              headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ estado_cocina: "cancelado", motivo_cancelacion: reason }),
+                                            });
+                                            setActiveSplit(null);
+                                            load();
+                                          }
+                                        }}
+                                        className="px-3 bg-red-500/20 text-red-300 font-semibold py-2.5 md:py-1.5 rounded-lg hover:bg-red-500/30 transition active:scale-95"
+                                      >
+                                        Agotado
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
                                       onClick={() => setActiveSplit(null)}
@@ -273,7 +239,10 @@ export default function CocinaPage() {
                                 <button
                                   type="button"
                                   onClick={() => handleItemClick(p.id, d)}
-                                  className="w-full text-left flex items-center justify-between min-h-[44px] py-1"
+                                  className={clsx(
+                                    "w-full text-left flex items-center justify-between min-h-[44px] py-1",
+                                    col.key === "entregado" && "cursor-default"
+                                  )}
                                 >
                                   <span>
                                     <span className="block text-base font-medium text-stone-50">
@@ -294,17 +263,6 @@ export default function CocinaPage() {
                                     </span>
                                   )}
                                 </button>
-                              )}
-                              {isAdmin && (
-                                <div className="mt-2 pt-2 border-t border-white/5 flex gap-2 text-xs">
-                                  <button
-                                    type="button"
-                                    onClick={() => openAdminAction("no_entregado", p.id, d)}
-                                    className="px-2 py-1 bg-red-950/60 hover:bg-red-900 text-red-300 rounded font-medium transition"
-                                  >
-                                    No Entregado
-                                  </button>
-                                </div>
                               )}
                             </div>
                           </div>
@@ -343,73 +301,6 @@ export default function CocinaPage() {
           </div>
         ))}
       </div>
-
-      {adminActionModal.isOpen && adminActionModal.detalle && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="card w-full max-w-sm p-5 border border-white/10 bg-[#1c1b18] text-stone-100 shadow-2xl rounded-2xl">
-            <h3 className="font-display text-lg font-semibold">
-              {adminActionModal.actionType === "no_entregado" ? "Marcar como No Entregado" : "Retirar ítem del pedido"}
-            </h3>
-            <p className="mt-1 text-xs text-stone-400">
-              {adminActionModal.detalle.producto_nombre} ({adminActionModal.detalle.cantidad} disponible(s))
-            </p>
-
-            {adminActionModal.detalle.cantidad > 1 && (
-              <div className="mt-4 flex flex-col gap-2 bg-stone-900/60 p-3 rounded-xl border border-white/5">
-                <label className="text-xs text-stone-300 font-medium">Selecciona cuántas unidades procesar:</label>
-                <div className="flex items-center justify-center gap-4">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setAdminActionModal((prev) => ({ ...prev, cantidad: Math.max(1, prev.cantidad - 1) }))
-                    }
-                    className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center text-lg font-bold hover:bg-white/20 active:scale-95 transition"
-                  >
-                    -
-                  </button>
-                  <span className="w-12 text-center text-xl font-bold text-amber-400">
-                    {adminActionModal.cantidad}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setAdminActionModal((prev) => ({
-                        ...prev,
-                        cantidad: Math.min(prev.detalle.cantidad, prev.cantidad + 1),
-                      }))
-                    }
-                    className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center text-lg font-bold hover:bg-white/20 active:scale-95 transition"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <p className="mt-4 text-xs text-stone-400 leading-relaxed">
-              {adminActionModal.actionType === "no_entregado"
-                ? `Se marcarán ${adminActionModal.cantidad} de ${adminActionModal.detalle.cantidad} unidad(es) como No Entregado y se descontarán del total a cobrar.`
-                : `Se eliminarán ${adminActionModal.cantidad} de ${adminActionModal.detalle.cantidad} unidad(es) del pedido completamente.`}
-            </p>
-
-            <div className="mt-5 flex gap-2">
-              <button type="button" onClick={closeAdminModal} className="px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold rounded-xl flex-1 transition">
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={confirmAdminAction}
-                className={clsx(
-                  "px-4 py-2.5 text-xs font-semibold rounded-xl flex-1 text-white transition active:scale-95",
-                  adminActionModal.actionType === "no_entregado" ? "bg-red-600 hover:bg-red-500" : "bg-rose-700 hover:bg-rose-600"
-                )}
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </Shell>
   );
 }

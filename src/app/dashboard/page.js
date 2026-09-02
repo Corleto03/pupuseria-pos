@@ -170,6 +170,41 @@ export default function DashboardPage() {
           {!data?.recientes?.length && <p className="py-12 text-center text-sm text-mute">Sin ventas cobradas en este periodo.</p>}
         </div>
       </section>
+
+      {/* Control de Anulaciones y Merma */}
+      <section className="card mt-6 border border-line bg-white p-5 md:p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-wine">Auditoría de Anulaciones y Merma</h2>
+            <p className="mt-1 text-xs text-mute">Platillos retirados o cancelados durante el periodo con su justificación</p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[650px] text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-xs font-semibold text-mute">
+                <th className="pb-3">Fecha/Hora</th>
+                <th className="pb-3">Pedido</th>
+                <th className="pb-3">Platillo</th>
+                <th className="pb-3">Motivo / Justificación</th>
+                <th className="pb-3 text-right">Autorizó</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/50">
+              {(data?.anulados || []).map((a) => (
+                <tr key={a.id} className="hover:bg-red-50/30">
+                  <td className="py-3 text-xs text-mute">{a.fecha_cancelacion ? fmt.date(a.fecha_cancelacion) : "—"}</td>
+                  <td className="py-3 font-medium">{a.nombre_control}</td>
+                  <td className="py-3 font-semibold text-wine">{a.cantidad}x {a.producto_nombre}</td>
+                  <td className="py-3 text-xs text-stone-600 italic">{a.motivo_cancelacion || "Sin justificación registrada"}</td>
+                  <td className="py-3 text-right text-xs font-medium text-ink">{a.cancelado_por_nombre || "Administrador"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!data?.anulados?.length && <p className="py-8 text-center text-sm text-mute">Sin anulaciones ni pérdidas registradas en este periodo.</p>}
+        </div>
+      </section>
     </Shell>
   );
 }

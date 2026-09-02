@@ -30,8 +30,8 @@ export default function LoginForm() {
 
   return (
     <form onSubmit={submit} className="card mx-auto w-full max-w-sm p-8">
-      <p className="font-display text-3xl">La Pupusa</p>
-      <p className="mt-1 text-sm text-mute">Punto de venta del restaurante</p>
+      <p className="font-display text-3xl">OceanSis</p>
+      <p className="mt-1 text-sm text-mute">Sistema Punto de Venta (POS)</p>
       <div className="mt-8 space-y-3">
         <div>
           <label className="text-xs text-mute">Correo</label>

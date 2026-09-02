@@ -32,6 +32,7 @@ export const ESTADO_COCINA = {
   pendiente: { label: "Pendiente", next: "preparacion" },
   preparacion: { label: "En preparación", next: "entregado" },
   entregado: { label: "Entregado", next: null },
+  no_entregado: { label: "No Entregado", next: null },
 };
 
 export const MASAS = ["Maíz", "Arroz"];

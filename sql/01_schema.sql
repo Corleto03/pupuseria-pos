@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS public.detalle_pedidos (
   cantidad       INT NOT NULL DEFAULT 1 CHECK (cantidad > 0),
   -- Borrador no llega a cocina hasta que el mesero lo envía expresamente.
   estado_cocina  TEXT NOT NULL DEFAULT 'borrador'
-                   CHECK (estado_cocina IN ('borrador', 'pendiente', 'preparacion', 'entregado')),
+                   CHECK (estado_cocina IN ('borrador', 'pendiente', 'preparacion', 'entregado', 'no_entregado')),
   destino_servicio TEXT NOT NULL DEFAULT 'local'
                    CHECK (destino_servicio IN ('local', 'llevar')),
   notas          TEXT,
@@ -105,7 +105,7 @@ ALTER TABLE public.pedidos ADD COLUMN IF NOT EXISTS fecha_pago TIMESTAMPTZ;
 ALTER TABLE public.detalle_pedidos DROP CONSTRAINT IF EXISTS detalle_pedidos_estado_cocina_check;
 ALTER TABLE public.detalle_pedidos
   ADD CONSTRAINT detalle_pedidos_estado_cocina_check
-  CHECK (estado_cocina IN ('borrador', 'pendiente', 'preparacion', 'entregado'));
+  CHECK (estado_cocina IN ('borrador', 'pendiente', 'preparacion', 'entregado', 'no_entregado'));
 ALTER TABLE public.detalle_pedidos DROP CONSTRAINT IF EXISTS detalle_pedidos_destino_servicio_check;
 ALTER TABLE public.detalle_pedidos
   ADD CONSTRAINT detalle_pedidos_destino_servicio_check
@@ -263,7 +263,7 @@ BEGIN
   SET total = (
     SELECT COALESCE(SUM(precio_unitario * cantidad), 0)
     FROM public.detalle_pedidos
-    WHERE id_pedido = v_id
+    WHERE id_pedido = v_id AND estado_cocina <> 'no_entregado'
   )
   WHERE id = v_id;
   RETURN COALESCE(NEW, OLD);
@@ -308,11 +308,17 @@ CREATE TRIGGER trg_sync_mesa
 
 CREATE OR REPLACE FUNCTION public.protect_detalle_pendiente()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+  v_role TEXT := public.current_app_role();
 BEGIN
+  -- Allow admins to bypass restrictions for delete or status changes
+  IF v_role IN ('superadmin', 'admin') THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
   IF TG_OP = 'DELETE' THEN
     IF OLD.estado_cocina NOT IN ('borrador', 'pendiente') THEN
-      RAISE EXCEPTION 'Solo se pueden eliminar productos antes de que comiencen a prepararse'
-        USING ERRCODE = 'P0002';
+      RAISE EXCEPTION 'Solo se pueden eliminar productos antes de que comiencen a prepararse' USING ERRCODE = 'P0002';
     END IF;
     RETURN OLD;
   END IF;
@@ -337,10 +343,6 @@ BEGIN
         OR NEW.notas IS DISTINCT FROM OLD.notas
         OR NEW.destino_servicio IS DISTINCT FROM OLD.destino_servicio)
        AND OLD.estado_cocina NOT IN ('borrador', 'pendiente') THEN
-      RAISE EXCEPTION 'Solo se pueden modificar platillos antes de que comiencen a prepararse'
-        USING ERRCODE = 'P0002';
-    END IF;
-    -- Cocina puede separar una parte para avanzar su estado; nunca aumentar ni
     -- editar directamente un ítem ya enviado.
     IF NEW.cantidad IS DISTINCT FROM OLD.cantidad
        AND OLD.estado_cocina NOT IN ('borrador', 'pendiente')
@@ -366,7 +368,7 @@ BEGIN
   IF NEW.estado_pago = 'pagada' AND OLD.estado_pago <> 'pagada' THEN
     SELECT COUNT(*) INTO pending
     FROM public.detalle_pedidos
-    WHERE id_pedido = NEW.id AND estado_cocina <> 'entregado';
+    WHERE id_pedido = NEW.id AND estado_cocina NOT IN ('entregado','no_entregado');
     IF pending > 0 THEN
       RAISE EXCEPTION 'No se puede cobrar: hay % producto(s) sin entregar', pending
         USING ERRCODE = 'P0001';
@@ -657,3 +659,24 @@ ON CONFLICT (clave) DO NOTHING;
 
 -- Las cuentas iniciales se crean desde scripts/setup-db.mjs usando variables
 -- privadas BOOTSTRAP_*; no se incluyen usuarios ni contraseñas en Git.
+CREATE TABLE IF NOT EXISTS public.caja (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+  apertura NUMERIC(10,2) NOT NULL DEFAULT 0,
+  cierre NUMERIC(10,2),
+  efectivo NUMERIC(10,2) DEFAULT 0,
+  tarjeta NUMERIC(10,2) DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.caja ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.caja FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS caja_select ON public.caja;
+CREATE POLICY caja_select ON public.caja FOR SELECT
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'));
+
+DROP POLICY IF EXISTS caja_write ON public.caja;
+CREATE POLICY caja_write ON public.caja FOR ALL
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'))
+  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'));

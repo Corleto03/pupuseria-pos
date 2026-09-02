@@ -50,6 +50,9 @@ export async function PATCH(request, { params }) {
             }
           }
         }
+        if (!['borrador', 'pendiente', 'preparacion', 'entregado', 'no_entregado'].includes(body.estado_cocina)) {
+          throw Object.assign(new Error("Estado de cocina no válido"), { code: "P0001" });
+        }
         return c.query(
           `UPDATE detalle_pedidos SET estado_cocina = $1
            WHERE id = $2 AND id_pedido = $3 RETURNING *`,
@@ -91,14 +94,30 @@ export async function PATCH(request, { params }) {
   }
 }
 
-export async function DELETE(_req, { params }) {
+export async function DELETE(req, { params }) {
   const { user, error } = await requireUser(["superadmin", "admin", "gerente", "mesero", "cajero"]);
   if (error) return error;
   const { id, detalleId } = await params;
+  const url = new URL(req.url);
+  const qtyParam = url.searchParams.get("cantidad");
+  const qty = qtyParam ? parseInt(qtyParam, 10) : null;
+
   try {
-    const { rowCount } = await withUser(user, (c) =>
-      c.query("DELETE FROM detalle_pedidos WHERE id = $1 AND id_pedido = $2", [detalleId, id])
-    );
+    const { rowCount } = await withUser(user, async (c) => {
+      if (qty && qty > 0) {
+        const currentRes = await c.query(
+          "SELECT cantidad FROM detalle_pedidos WHERE id = $1 AND id_pedido = $2",
+          [detalleId, id]
+        );
+        if (currentRes.rows[0] && qty < currentRes.rows[0].cantidad) {
+          return c.query(
+            "UPDATE detalle_pedidos SET cantidad = cantidad - $1 WHERE id = $2 AND id_pedido = $3",
+            [qty, detalleId, id]
+          );
+        }
+      }
+      return c.query("DELETE FROM detalle_pedidos WHERE id = $1 AND id_pedido = $2", [detalleId, id]);
+    });
     if (!rowCount) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err) {

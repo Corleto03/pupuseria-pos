@@ -3,6 +3,7 @@
 import { fmt } from "@/lib/formatters";
 import { X } from "lucide-react";
 import { useMemo, useState } from "react";
+import clsx from "clsx";
 
 export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
   const [monto, setMonto] = useState("");
@@ -10,11 +11,19 @@ export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
   const [montoTarjeta, setMontoTarjeta] = useState("");
   const [metodo, setMetodo] = useState("efectivo");
   const [imprimir, setImprimir] = useState(true);
-  const total = Number(pedido.total);
-  
+  const total = useMemo(() => {
+    if (pedido.detalles && pedido.detalles.length > 0) {
+      return pedido.detalles.reduce((acc, d) => {
+        if (d.estado_cocina === "no_entregado") return acc;
+        return acc + (Number(d.precio_unitario ?? d.precio ?? 0) * d.cantidad);
+      }, 0);
+    }
+    return Number(pedido.total) || 0;
+  }, [pedido]);
+
   const recibido = parseFloat(monto) || 0;
   const vuelto = recibido - total;
-  
+
   const recibidoEfectivo = parseFloat(montoEfectivo) || 0;
   const recibidoTarjeta = parseFloat(montoTarjeta) || 0;
 
@@ -24,7 +33,7 @@ export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
     (metodo === "mixto" && (recibidoEfectivo + recibidoTarjeta) >= total);
 
   const pendientes = useMemo(
-    () => (pedido.detalles || []).filter((d) => d.estado_cocina !== "entregado").length,
+    () => (pedido.detalles || []).filter((d) => !["entregado", "no_entregado"].includes(d.estado_cocina)).length,
     [pedido]
   );
 
@@ -47,6 +56,40 @@ export default function CobroModal({ pedido, onClose, onConfirm, saving }) {
             <span>{fmt.money(total)}</span>
           </div>
         </div>
+        {/* Detalle del pedido */}
+        {pedido.detalles && pedido.detalles.length > 0 && (
+          <div className="mt-4 rounded-xl bg-stone-50 border border-line p-3">
+            <h4 className="text-xs font-semibold text-mute uppercase tracking-wider mb-2">Detalle del pedido</h4>
+            <ul className="space-y-1.5 text-xs max-h-36 overflow-y-auto pr-1">
+              {pedido.detalles.map((d) => (
+                <li key={d.id} className="flex justify-between items-center py-0.5">
+                  <span className={clsx(d.estado_cocina === "no_entregado" && "line-through text-mute")}>
+                    {d.cantidad} × {d.producto_nombre || d.producto?.nombre || d.nombre}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={clsx("font-medium", d.estado_cocina === "no_entregado" && "line-through text-mute")}>
+                      {d.estado_cocina === "no_entregado"
+                        ? "$0.00"
+                        : fmt.money((d.precio_unitario ?? d.precio ?? 0) * d.cantidad)}
+                    </span>
+                    <span
+                      className={clsx(
+                        "text-[10px] font-semibold px-1.5 py-0.5 rounded",
+                        d.estado_cocina === "entregado"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : d.estado_cocina === "no_entregado"
+                          ? "bg-stone-200 text-stone-600 line-through"
+                          : "bg-amber-100 text-amber-800"
+                      )}
+                    >
+                      {d.estado_cocina === "no_entregado" ? "No entregado" : d.estado_cocina}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {pendientes > 0 && (
           <p className="mt-3 text-xs text-wine">Aún hay {pendientes} producto(s) sin entregar. El cobro está bloqueado.</p>
         )}

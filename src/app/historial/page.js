@@ -161,16 +161,29 @@ export default function HistorialPage() {
                     </thead>
                     <tbody>
                       {selectedPedido.detalles.map((d) => (
-                        <tr key={d.id} className="border-b border-line/60 last:border-0">
+                        <tr key={d.id} className={clsx("border-b border-line/60 last:border-0", d.estado_cocina === "no_entregado" && "bg-red-50/50")}>
                           <td className="px-4 py-3 font-mono text-xs">{d.cantidad}</td>
                           <td className="px-4 py-3">
-                            <span className="font-medium">{d.producto_nombre}</span>
+                            <div className="flex items-center gap-2">
+                              <span className={clsx("font-medium", d.estado_cocina === "no_entregado" && "line-through text-rose-700")}>
+                                {d.producto_nombre}
+                              </span>
+                              {d.estado_cocina === "no_entregado" && (
+                                <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded">
+                                  No Entregado
+                                </span>
+                              )}
+                            </div>
                             {d.variante && <span className="ml-2 text-xs text-mute">({d.variante})</span>}
                             {d.notas && <p className="text-xs text-wine mt-0.5">Nota: {d.notas}</p>}
                           </td>
                           <td className="px-4 py-3 text-mute font-mono text-xs">{fmt.money(d.precio_unitario)}</td>
                           <td className="px-4 py-3 text-right font-mono text-xs font-medium">
-                            {fmt.money(d.precio_unitario * d.cantidad)}
+                            {d.estado_cocina === "no_entregado" ? (
+                              <span className="text-rose-600 font-bold">$0.00</span>
+                            ) : (
+                              fmt.money(d.precio_unitario * d.cantidad)
+                            )}
                           </td>
                         </tr>
                       ))}

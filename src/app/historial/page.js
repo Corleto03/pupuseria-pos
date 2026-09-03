@@ -230,7 +230,8 @@ export default function HistorialPage() {
                     {selectedPedido.detalles.filter((d) => ["no_entregado", "anulado", "cancelado"].includes(d.estado_cocina)).map((d) => (
                       <li key={d.id}>
                         <span className="font-semibold">{d.cantidad}× {d.producto_nombre}</span>
-                        {d.variante ? ` (${d.variante})` : ""} — Marcado como no entregado (Descontado $0.00)
+                        {d.variante ? ` (${d.variante})` : ""}
+                        {d.destino_servicio === "llevar" ? " [Para llevar]" : ""} — Marcado como no entregado (Descontado {fmt.money(d.precio_unitario * d.cantidad)})
                       </li>
                     ))}
                   </ul>
@@ -261,6 +262,11 @@ export default function HistorialPage() {
                                 <span className={clsx("font-medium", isUndelivered && "line-through text-rose-700")}>
                                   {d.producto_nombre}
                                 </span>
+                                {d.destino_servicio === "llevar" && (
+                                  <span className="text-[10px] bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded border border-amber-200">
+                                    Para llevar
+                                  </span>
+                                )}
                                 {isUndelivered && (
                                   <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded">
                                     No Entregado

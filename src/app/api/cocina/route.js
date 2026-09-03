@@ -4,7 +4,7 @@ import { withUser } from "@/lib/db";
 import { PEDIDO_SELECT } from "@/lib/queries";
 
 export async function GET() {
-  const { user, error } = await requireUser(["superadmin", "admin", "gerente", "cocinero"]);
+  const { user, error } = await requireUser(["superadmin", "admin", "gerente", "cocinero", "mesero", "cajero"]);
   if (error) return error;
 
   const { rows } = await withUser(user, (c) =>

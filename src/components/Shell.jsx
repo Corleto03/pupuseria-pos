@@ -23,8 +23,8 @@ import clsx from "clsx";
 const NAV = [
   { href: "/mesas", label: "Mesas", icon: LayoutGrid, roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
   { href: "/llevar", label: "Para llevar", icon: UtensilsCrossed, roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
-  { href: "/cocina", label: "Cocina", icon: CookingPot, roles: ["superadmin", "admin", "gerente", "cocinero"] },
-  { href: "/caja", label: "Caja", icon: Wallet, roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
+  { href: "/cocina", label: "Cocina", icon: CookingPot, roles: ["superadmin", "admin", "gerente", "cocinero", "mesero", "cajero"] },
+  { href: "/caja", label: "Caja", icon: Wallet, roles: ["superadmin", "admin", "gerente", "cajero"] },
   { href: "/historial", label: "Historial", icon: History, roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
   { href: "/dashboard", label: "Reportes", icon: BarChart3, roles: ["superadmin", "admin", "gerente"] },
   { href: "/menu", label: "Menú", icon: BookOpen, roles: ["superadmin", "admin", "gerente"] },

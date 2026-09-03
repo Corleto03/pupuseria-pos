@@ -20,8 +20,9 @@ export async function printTicket(pedidoId) {
     const nombre = d.producto_nombre || "";
     const varName = d.variante || "";
     const estado = d.estado_cocina || "";
+    const destino = d.destino_servicio || "";
     const precio = Number(d.precio_unitario || 0);
-    const key = `${nombre}_${varName}_${estado}_${precio}`;
+    const key = `${nombre}_${varName}_${estado}_${destino}_${precio}`;
     if (map.has(key)) {
       map.get(key).cantidad += d.cantidad;
     } else {
@@ -32,10 +33,12 @@ export async function printTicket(pedidoId) {
 
   const itemsHtml = itemsList.map((d) => {
     const isNoEntregado = ["no_entregado", "anulado", "cancelado"].includes(d.estado_cocina);
+    const isLlevar = d.destino_servicio === "llevar";
     const subtotal = isNoEntregado ? "$0.00 (NO ENTREGADO)" : `$${(d.precio_unitario * d.cantidad).toFixed(2)}`;
     const textStyle = isNoEntregado ? "text-decoration:line-through;color:#888;" : "";
+    const llevarTag = isLlevar ? " <b>[Para llevar]</b>" : "";
     return `<tr>
-      <td style="${textStyle}">${d.cantidad}× ${esc(d.producto_nombre)}${d.variante ? ` · ${esc(d.variante)}` : ""}${isNoEntregado ? " <small style='color:#c00;'>(No entregado)</small>" : ""}</td>
+      <td style="${textStyle}">${d.cantidad}× ${esc(d.producto_nombre)}${d.variante ? ` · ${esc(d.variante)}` : ""}${llevarTag}${isNoEntregado ? " <small style='color:#c00;'>(No entregado)</small>" : ""}</td>
       <td style="text-align:right;${textStyle}">${subtotal}</td>
     </tr>`;
   }).join("");

@@ -235,6 +235,13 @@ async function main() {
       CHECK (estado_cocina IN ('borrador', 'pendiente', 'preparacion', 'entregado', 'no_entregado', 'anulado', 'cancelado'));
   `);
 
+  console.log("Configurando RLS y políticas en mesas...");
+  await client.query(`
+    DROP POLICY IF EXISTS mesas_insert ON public.mesas;
+    CREATE POLICY mesas_insert ON public.mesas FOR INSERT
+      WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero'));
+  `);
+
   await client.end();
   console.log("Migración completada con éxito.");
 }

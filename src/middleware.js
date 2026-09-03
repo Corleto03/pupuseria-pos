@@ -6,9 +6,9 @@ const COOKIE = "pos_session";
 const RULES = [
   { prefix: "/mesas", roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
   { prefix: "/llevar", roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
-  { prefix: "/caja", roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
+  { prefix: "/caja", roles: ["superadmin", "admin", "gerente", "cajero"] },
   { prefix: "/historial", roles: ["superadmin", "admin", "gerente", "mesero", "cajero"] },
-  { prefix: "/cocina", roles: ["superadmin", "admin", "gerente", "cocinero"] },
+  { prefix: "/cocina", roles: ["superadmin", "admin", "gerente", "cocinero", "mesero", "cajero"] },
   { prefix: "/dashboard", roles: ["superadmin", "admin", "gerente"] },
   { prefix: "/menu", roles: ["superadmin", "admin", "gerente"] },
   { prefix: "/usuarios", roles: ["superadmin", "admin"] },

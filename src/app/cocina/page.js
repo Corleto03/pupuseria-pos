@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Shell from "@/components/Shell";
 import { useRealtime } from "@/hooks/useRealtime";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/hooks/useAuth";
 import { ESTADO_COCINA, fmt } from "@/lib/formatters";
 import clsx from "clsx";
 
@@ -31,6 +32,8 @@ function groupByEstado(detalles) {
 }
 
 export default function CocinaPage() {
+  const { user } = useAuth();
+  const isReadOnly = user?.rol === "mesero" || user?.rol === "cajero";
   const toast = useToast();
   const [pedidos, setPedidos] = useState([]);
   const [selectedItems, setSelectedItems] = useState({}); // { [detalleId]: boolean }
@@ -117,7 +120,17 @@ export default function CocinaPage() {
   ];
 
   return (
-    <Shell title="Cocina" dark>
+    <Shell
+      title="Cocina"
+      actions={
+        isReadOnly ? (
+          <span className="rounded-full bg-amber-500/15 border border-amber-500/30 px-3 py-1 text-xs font-semibold text-amber-300">
+            Modo Solo Lectura (Consulta)
+          </span>
+        ) : null
+      }
+      dark
+    >
       <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6 lg:gap-4 pb-4">
         {cols.map((col) => (
           <div key={col.key} className="flex-1">
@@ -159,7 +172,7 @@ export default function CocinaPage() {
                               col.key === "entregado" && "bg-emerald-500/10"
                             )}
                           >
-                            {col.key !== "entregado" && (
+                            {col.key !== "entregado" && !isReadOnly && (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -182,7 +195,7 @@ export default function CocinaPage() {
 
                             {/* Main content */}
                             <div className="flex-1 p-3.5">
-                              {col.key !== "entregado" && activeSplit === d.id ? (
+                              {col.key !== "entregado" && !isReadOnly && activeSplit === d.id ? (
                                 <div className="flex flex-col gap-2.5">
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs font-medium text-stone-400">
@@ -232,7 +245,7 @@ export default function CocinaPage() {
                                     </button>
                                   </div>
                                 </div>
-                              ) : col.key !== "entregado" ? (
+                              ) : col.key !== "entregado" && !isReadOnly ? (
                                 <button
                                   type="button"
                                   onClick={() => handleItemClick(p.id, d)}
@@ -277,7 +290,7 @@ export default function CocinaPage() {
                         );
                       })}
                     </div>
-                    {showBulk && (
+                    {showBulk && !isReadOnly && (
                       <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap gap-2">
                         <button
                           type="button"

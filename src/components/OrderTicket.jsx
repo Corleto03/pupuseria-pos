@@ -4,9 +4,11 @@ import { useMemo, useState } from "react";
 import { MASAS, fmt } from "@/lib/formatters";
 import { Minus, Plus, Trash2, X, ShoppingBag } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
+import { useAuth } from "@/hooks/useAuth";
 import clsx from "clsx";
 
 export default function OrderTicket({ pedido, productos, onChanged, toast }) {
+  const { user } = useAuth();
   const [masa, setMasa] = useState("Maíz");
   const [destino, setDestino] = useState(pedido.tipo_pedido === "llevar" ? "llevar" : "local");
   const [tab, setTab] = useState("pupusa");
@@ -60,8 +62,9 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
 
   function handlePedirCancelar() {
     const hasItemsInPrep = (pedido.detalles || []).some((d) => ["preparacion", "entregado"].includes(d.estado_cocina));
-    if (hasItemsInPrep) {
-      return toast("No se puede cancelar: hay productos en preparación o entregados", "err");
+    const canForceCancel = ["superadmin", "admin"].includes(user?.rol);
+    if (hasItemsInPrep && !canForceCancel) {
+      return toast("No se puede cancelar: hay productos en preparación o entregados. Requiere usuario Administrador.", "err");
     }
     setShowCancelModal(true);
   }
@@ -400,7 +403,11 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
       <ConfirmModal
         isOpen={showCancelModal}
         title="¿Cancelar Pedido?"
-        message="¿Está seguro de que desea cancelar este pedido? Se liberará la mesa inmediatamente."
+        message={
+          (pedido.detalles || []).some((d) => ["preparacion", "entregado"].includes(d.estado_cocina))
+            ? "Atención: Hay productos en preparación o entregados. Al ser Administrador, se anularán todos los ítems y se liberará la mesa inmediatamente. ¿Desea cancelar el pedido?"
+            : "¿Está seguro de que desea cancelar este pedido? Se liberará la mesa inmediatamente."
+        }
         confirmText="Sí, cancelar"
         onConfirm={ejecutarCancelarPedido}
         onClose={() => setShowCancelModal(false)}

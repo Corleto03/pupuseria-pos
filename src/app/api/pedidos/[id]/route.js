@@ -121,14 +121,28 @@ export async function PATCH(request, { params }) {
     }
     if (body.accion === "cancelar") {
       const { rows } = await withUser(user, async (c) => {
-        const chk = await c.query(
-          `SELECT COUNT(*)::int AS n
-           FROM detalle_pedidos
-           WHERE id_pedido = $1 AND estado_cocina IN ('preparacion', 'entregado')`,
-          [id]
-        );
-        if (chk.rows[0].n > 0) {
-          throw Object.assign(new Error("No se puede cancelar: ya hay productos en preparación o entregados"), { code: "P0001" });
+        const canForceCancel = ["superadmin", "admin"].includes(user.rol);
+        if (!canForceCancel) {
+          const chk = await c.query(
+            `SELECT COUNT(*)::int AS n
+             FROM detalle_pedidos
+             WHERE id_pedido = $1 AND estado_cocina IN ('preparacion', 'entregado')`,
+            [id]
+          );
+          if (chk.rows[0].n > 0) {
+            throw Object.assign(
+              new Error("No se puede cancelar: ya hay productos en preparación o entregados. Requiere usuario Administrador."),
+              { code: "P0001" }
+            );
+          }
+        } else {
+          // Como admin/superadmin, anular todos los ítems pendientes o en preparación del pedido
+          await c.query(
+            `UPDATE detalle_pedidos
+             SET estado_cocina = 'cancelado'
+             WHERE id_pedido = $1 AND estado_cocina NOT IN ('no_entregado', 'anulado', 'cancelado')`,
+            [id]
+          );
         }
         return c.query(
           `UPDATE pedidos SET estado_pago = 'cancelada' WHERE id = $1 AND estado_pago = 'pendiente' RETURNING *`,

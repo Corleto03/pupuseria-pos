@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/api";
-import { withUser } from "@/lib/db";
+import { withUser, pgError } from "@/lib/db";
 
 export async function GET() {
   const { user, error } = await requireUser();
@@ -34,13 +34,17 @@ export async function POST() {
   const { user, error } = await requireUser(["superadmin", "admin", "gerente", "mesero", "cajero"]);
   if (error) return error;
 
-  const { rows } = await withUser(user, async (c) => {
-    const nextNumRes = await c.query("SELECT COALESCE(MAX(numero), 0) + 1 AS next_num FROM mesas");
-    const nextNum = nextNumRes.rows[0].next_num;
-    return c.query(
-      "INSERT INTO mesas (numero, capacidad) VALUES ($1, 4) RETURNING *",
-      [nextNum]
-    );
-  });
-  return NextResponse.json({ mesa: rows[0] });
+  try {
+    const { rows } = await withUser(user, async (c) => {
+      const nextNumRes = await c.query("SELECT COALESCE(MAX(numero), 0) + 1 AS next_num FROM mesas");
+      const nextNum = nextNumRes.rows[0].next_num;
+      return c.query(
+        "INSERT INTO mesas (numero, capacidad) VALUES ($1, 4) RETURNING *",
+        [nextNum]
+      );
+    });
+    return NextResponse.json({ mesa: rows[0] });
+  } catch (err) {
+    return NextResponse.json({ error: pgError(err) }, { status: 409 });
+  }
 }

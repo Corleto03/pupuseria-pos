@@ -542,6 +542,10 @@ DROP POLICY IF EXISTS mesas_write ON public.mesas;
 CREATE POLICY mesas_write ON public.mesas FOR UPDATE
   USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero'));
 
+DROP POLICY IF EXISTS mesas_insert ON public.mesas;
+CREATE POLICY mesas_insert ON public.mesas FOR INSERT
+  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero'));
+
 DROP POLICY IF EXISTS productos_select ON public.productos;
 CREATE POLICY productos_select ON public.productos FOR SELECT
   USING (public.is_staff());

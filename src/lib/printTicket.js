@@ -7,7 +7,7 @@ export async function printTicket(pedidoId) {
   if (!pedido) return;
 
   const config = resConf ? await resConf.json().catch(() => ({})) : {};
-  const restName = config.nombre_restaurante || "La Pupusa";
+  const restName = config.nombre_restaurante || "OceanSis";
   const logoUrl = config.logo_url || "";
 
   const win = window.open("", "_blank", "width=420,height=640");

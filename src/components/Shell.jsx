@@ -37,7 +37,7 @@ export default function Shell({ title, actions, children, dark = false }) {
   const pathname = usePathname();
   const items = NAV.filter((n) => user && n.roles.includes(user.rol));
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [ajustes, setAjustes] = useState({ nombre_restaurante: "La Pupusa", logo_url: "" });
+  const [ajustes, setAjustes] = useState({ nombre_restaurante: "OceanSis", logo_url: "" });
 
   useEffect(() => {
     fetch("/api/ajustes")
@@ -59,16 +59,14 @@ export default function Shell({ title, actions, children, dark = false }) {
     <>
       <div className="px-5 py-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {ajustes.logo_url && (
-            <img
-              src={ajustes.logo_url}
-              alt="Logo"
-              className="h-9 w-9 rounded-lg object-contain bg-white p-0.5 border border-line"
-            />
-          )}
+          <img
+            src={ajustes.logo_url || "/android-chrome-512x512.png"}
+            alt="Logo"
+            className="h-9 w-9 rounded-lg object-contain bg-white p-0.5 border border-line"
+          />
           <div>
             <p className={clsx("font-display text-lg leading-none font-semibold", dark ? "text-stone-100" : "text-ink")}>
-              {ajustes.nombre_restaurante || "La Pupusa"}
+              {ajustes.nombre_restaurante || "OceanSis"}
             </p>
             <p className={clsx("mt-1 text-[10px]", dark ? "text-stone-500" : "text-mute")}>POS del local</p>
           </div>

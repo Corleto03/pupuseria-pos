@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Shell from "@/components/Shell";
 import { fmt } from "@/lib/formatters";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Download, TrendingUp, Receipt, Store, ShoppingBag, ShieldCheck } from "lucide-react";
+import { Download, TrendingUp, Receipt, Store, ShoppingBag, ShieldCheck, Calendar, X } from "lucide-react";
 
 const PERIODS = [
   { id: "dia", label: "Hoy" },
@@ -14,12 +14,14 @@ const PERIODS = [
 
 export default function DashboardPage() {
   const [periodo, setPeriodo] = useState("dia");
+  const [fecha, setFecha] = useState("");
   const [data, setData] = useState(null);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/reportes?periodo=${periodo}`);
+    const query = fecha ? `fecha=${fecha}` : `periodo=${periodo}`;
+    const res = await fetch(`/api/reportes?${query}`);
     setData(await res.json());
-  }, [periodo]);
+  }, [periodo, fecha]);
 
   useEffect(() => {
     load();
@@ -27,28 +29,65 @@ export default function DashboardPage() {
 
   return (
     <Shell
-      title="Reportes de Venta"
+      title={fecha ? `Reportes — ${fecha}` : "Reportes de Venta"}
       actions={
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <div className="flex rounded-full bg-stone-100 p-1 border border-line">
             {PERIODS.map((p) => (
               <button
                 key={p.id}
-                onClick={() => setPeriodo(p.id)}
-                className={`rounded-full px-4 py-1 text-xs font-semibold transition-all duration-150 ${
-                  periodo === p.id ? "bg-ink text-paper shadow-sm" : "text-mute hover:text-ink"
+                onClick={() => {
+                  setPeriodo(p.id);
+                  setFecha("");
+                }}
+                className={`rounded-full px-3.5 py-1 text-xs font-semibold transition-all duration-150 ${
+                  !fecha && periodo === p.id ? "bg-ink text-paper shadow-sm" : "text-mute hover:text-ink"
                 }`}
               >
                 {p.label}
               </button>
             ))}
           </div>
+
+          <div
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs border transition-all ${
+              fecha ? "bg-amber-50 border-amber-300 text-amber-900 shadow-sm" : "bg-stone-100 border-line text-mute hover:text-ink"
+            }`}
+          >
+            <Calendar size={13} className={fecha ? "text-amber-700" : "text-mute"} />
+            <input
+              type="date"
+              value={fecha}
+              onChange={(e) => {
+                const val = e.target.value;
+                setFecha(val);
+                if (val) setPeriodo("");
+                else setPeriodo("dia");
+              }}
+              className="bg-transparent border-0 text-xs font-medium text-ink focus:ring-0 p-0 cursor-pointer outline-none"
+              title="Seleccionar un día específico"
+            />
+            {fecha && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFecha("");
+                  setPeriodo("dia");
+                }}
+                className="hover:bg-black/10 rounded-full p-0.5 text-stone-500 hover:text-ink"
+                title="Limpiar fecha"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
           <a
-            href={`/api/reportes/export?periodo=${periodo}`}
-            className="btn-primary text-xs flex items-center gap-1.5 py-2 px-3.5 bg-ink text-paper hover:bg-stone-800 rounded-xl transition"
+            href={`/api/reportes/export?${fecha ? `fecha=${fecha}` : `periodo=${periodo}`}`}
+            className="btn-primary text-xs flex items-center gap-1.5 py-2 px-3.5 bg-ink text-paper hover:bg-stone-800 rounded-xl transition whitespace-nowrap"
           >
             <Download size={14} />
-            Exportar Excel
+            Exportar Excel {fecha ? `(${fecha})` : ""}
           </a>
         </div>
       }

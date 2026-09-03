@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/api";
 import { withUser } from "@/lib/db";
 
-function rango(periodo) {
+function rango(periodo, fechaParam) {
+  if (fechaParam && /^\d{4}-\d{2}-\d{2}$/.test(fechaParam)) {
+    const start = new Date(`${fechaParam}T00:00:00-06:00`);
+    const end = new Date(`${fechaParam}T23:59:59.999-06:00`);
+    return { start, end };
+  }
   const end = new Date();
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -19,8 +24,10 @@ function rango(periodo) {
 export async function GET(request) {
   const { user, error } = await requireUser(["superadmin", "admin", "gerente"]);
   if (error) return error;
-  const periodo = new URL(request.url).searchParams.get("periodo") || "dia";
-  const { start, end } = rango(periodo);
+  const searchParams = new URL(request.url).searchParams;
+  const periodo = searchParams.get("periodo") || "dia";
+  const fecha = searchParams.get("fecha") || "";
+  const { start, end } = rango(periodo, fecha);
 
   const data = await withUser(user, async (c) => {
     const ventas = await c.query(
@@ -71,7 +78,9 @@ export async function GET(request) {
        FROM detalle_pedidos d
        JOIN pedidos p ON p.id = d.id_pedido
        JOIN productos pr ON pr.id = d.id_producto
-       WHERE p.estado_pago = 'pagada' AND COALESCE(p.fecha_pago, p.fecha) BETWEEN $1 AND $2
+       WHERE p.estado_pago = 'pagada' 
+         AND COALESCE(p.fecha_pago, p.fecha) BETWEEN $1 AND $2
+         AND d.estado_cocina NOT IN ('no_entregado', 'anulado', 'cancelado')
        GROUP BY pr.nombre
        ORDER BY cantidad DESC
        LIMIT 8`,

@@ -105,6 +105,7 @@ export async function PATCH(request, { params }) {
           }
           if (montoRecibido <= 0) montoRecibido = ef + tj;
           if (vuelto <= 0 && (ef + tj) > total) vuelto = (ef + tj) - total;
+          if (ef + tj > total) ef = Math.max(0, total - tj);
         }
 
         return c.query(

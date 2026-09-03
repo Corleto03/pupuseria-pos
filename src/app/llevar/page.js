@@ -7,6 +7,7 @@ import OrderTicket from "@/components/OrderTicket";
 import CobroModal from "@/components/CobroModal";
 import { useRealtime } from "@/hooks/useRealtime";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/hooks/useAuth";
 import { fmt } from "@/lib/formatters";
 import { printTicket } from "@/lib/printTicket";
 
@@ -18,6 +19,7 @@ export default function LlevarPage() {
   const [cobro, setCobro] = useState(false);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+  const { user } = useAuth();
   const router = useRouter();
 
   const load = useCallback(async () => {
@@ -112,7 +114,7 @@ export default function LlevarPage() {
         </>
       )}
       {cobro && activo && (
-        <CobroModal pedido={activo} onClose={() => setCobro(false)} onConfirm={cobrar} saving={saving} />
+        <CobroModal pedido={activo} onClose={() => setCobro(false)} onConfirm={cobrar} saving={saving} userRole={user?.rol} />
       )}
     </Shell>
   );

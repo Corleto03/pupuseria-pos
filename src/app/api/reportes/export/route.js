@@ -35,7 +35,19 @@ export async function GET(request) {
       `SELECT p.id AS pedido_id, p.fecha, p.nombre_control, p.tipo_pedido, p.metodo_pago, p.total AS total_pedido,
               m.numero AS mesa_numero, u.nombre AS mesero_nombre,
               pr.nombre AS producto, d.variante, d.cantidad, d.precio_unitario, d.notas,
-              (d.cantidad * d.precio_unitario)::float AS subtotal
+              (d.cantidad * d.precio_unitario)::float AS subtotal,
+              COALESCE(
+                (
+                  SELECT CASE 
+                    WHEN COUNT(DISTINCT d2.destino_servicio) > 1 THEN 'local/llevar'
+                    WHEN MIN(d2.destino_servicio) = 'llevar' THEN 'llevar'
+                    ELSE 'local'
+                  END
+                  FROM detalle_pedidos d2
+                  WHERE d2.id_pedido = p.id AND d2.estado_cocina NOT IN ('no_entregado', 'anulado', 'cancelado')
+                ),
+                p.tipo_pedido
+              ) AS tipo_servicio_calculado
        FROM detalle_pedidos d
        JOIN pedidos p ON p.id = d.id_pedido
        JOIN productos pr ON pr.id = d.id_producto
@@ -55,6 +67,7 @@ export async function GET(request) {
         fecha: r.fecha,
         nombre_control: r.nombre_control,
         tipo_pedido: r.tipo_pedido,
+        tipo_servicio_calculado: r.tipo_servicio_calculado,
         total_pedido: Number(r.total_pedido),
         mesa_numero: r.mesa_numero,
         mesero_nombre: r.mesero_nombre,
@@ -128,7 +141,8 @@ export async function GET(request) {
 
   for (const o of orders) {
     const mesaText = o.tipo_pedido === "local" ? `Mesa ${o.mesa_numero}` : "Para llevar";
-    const refText = `${mesaText} [Ref: ${o.nombre_control}]`;
+    const tipoServ = o.tipo_servicio_calculado || (o.tipo_pedido === "local" ? "local" : "llevar");
+    const refText = `${mesaText} [Ref: ${o.nombre_control}] (${tipoServ})`;
     const dateFormatted = new Intl.DateTimeFormat("es-SV", {
       day: "2-digit",
       month: "2-digit",

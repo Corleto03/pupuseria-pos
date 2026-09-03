@@ -32,26 +32,33 @@ export async function PATCH(request) {
       const formData = await request.formData();
       nombreRestaurante = formData.get("nombre_restaurante");
       
-      const file = formData.get("logo");
-      if (file && typeof file === "object" && file.size > 0) {
-        const bytes = await file.arrayBuffer();
-        const buffer = Buffer.from(bytes);
-        
-        // Ensure public directory exists
-        const publicDir = path.join(process.cwd(), "public");
-        if (!fs.existsSync(publicDir)) {
-          await mkdir(publicDir, { recursive: true });
+      const eliminarLogo = formData.get("eliminar_logo");
+      if (eliminarLogo === "true" || formData.get("logo_url") === "") {
+        logoUrl = "";
+      } else {
+        const file = formData.get("logo");
+        if (file && typeof file === "object" && file.size > 0) {
+          const bytes = await file.arrayBuffer();
+          const buffer = Buffer.from(bytes);
+          
+          // Ensure public directory exists
+          const publicDir = path.join(process.cwd(), "public");
+          if (!fs.existsSync(publicDir)) {
+            await mkdir(publicDir, { recursive: true });
+          }
+          
+          const filename = "logo.png";
+          const uploadPath = path.join(publicDir, filename);
+          await writeFile(uploadPath, buffer);
+          logoUrl = `/logo.png?v=${Date.now()}`; // Add version for cache busting
         }
-        
-        const filename = "logo.png";
-        const uploadPath = path.join(publicDir, filename);
-        await writeFile(uploadPath, buffer);
-        logoUrl = `/logo.png?v=${Date.now()}`; // Add version for cache busting
       }
     } else {
       const body = await request.json();
       nombreRestaurante = body.nombre_restaurante;
-      logoUrl = body.logo_url;
+      if (body.logo_url !== undefined) {
+        logoUrl = body.logo_url;
+      }
     }
 
     // Update settings in database using withUser to pass the RLS check

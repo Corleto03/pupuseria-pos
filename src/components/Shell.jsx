@@ -37,7 +37,7 @@ export default function Shell({ title, actions, children, dark = false }) {
   const pathname = usePathname();
   const items = NAV.filter((n) => user && n.roles.includes(user.rol));
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [ajustes, setAjustes] = useState({ nombre_restaurante: "OceanSis", logo_url: "" });
+  const [ajustes, setAjustes] = useState({ nombre_restaurante: "La Pupusa", logo_url: "" });
 
   useEffect(() => {
     fetch("/api/ajustes")
@@ -68,13 +68,13 @@ export default function Shell({ title, actions, children, dark = false }) {
           )}
           <div>
             <p className={clsx("font-display text-lg leading-none font-semibold", dark ? "text-stone-100" : "text-ink")}>
-              {ajustes.nombre_restaurante || "OceanSis"}
+              {ajustes.nombre_restaurante || "La Pupusa"}
             </p>
             <p className={clsx("mt-1 text-[10px]", dark ? "text-stone-500" : "text-mute")}>POS del local</p>
           </div>
         </div>
         <button 
-          className={clsx("md:hidden p-1 rounded-lg", dark ? "text-stone-400 hover:bg-white/10" : "text-mute hover:bg-black/5")}
+          className="md:hidden p-1 text-mute hover:bg-black/5 rounded-lg"
           onClick={() => setIsMobileMenuOpen(false)}
         >
           <X size={20} />
@@ -146,10 +146,7 @@ export default function Shell({ title, actions, children, dark = false }) {
         >
           <div className="flex items-center gap-3">
             <button 
-              className={clsx(
-                "p-1 -ml-1 md:hidden rounded-lg transition-colors",
-                dark ? "text-stone-100 hover:bg-white/10" : "text-ink hover:bg-black/5"
-              )} 
+              className="p-1 -ml-1 md:hidden text-ink rounded-lg hover:bg-black/5" 
               onClick={() => setIsMobileMenuOpen(true)}
             >
               <Menu size={24} />

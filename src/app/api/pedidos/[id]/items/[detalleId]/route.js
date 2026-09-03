@@ -7,13 +7,16 @@ export async function PATCH(request, { params }) {
   const body = await request.json();
 
   const roles = body.estado_cocina
-    ? ["superadmin", "admin", "gerente", "cocinero", "cajero"]
+    ? (body.estado_cocina === 'no_entregado'
+      ? ["superadmin", "admin"]
+      : ["superadmin", "admin", "gerente", "cocinero"])
     : ["superadmin", "admin", "gerente", "mesero", "cajero"];
   const { user, error } = await requireUser(roles);
   if (error) return error;
 
   try {
     const { rows } = await withUser(user, async (c) => {
+      let result;
       if (body.estado_cocina) {
         if (body.cantidad != null) {
           const currentRes = await c.query(
@@ -31,9 +34,9 @@ export async function PATCH(request, { params }) {
                 [transitionQty, detalleId, id]
               );
               // 2. Create the new item in the new state
-              const insertedNew = await c.query(
-                `INSERT INTO detalle_pedidos (id_pedido, id_producto, cantidad, estado_cocina, notas, variante, destino_servicio, precio_unitario, motivo_cancelacion, cancelado_por, fecha_cancelacion)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $4 = 'cancelado' THEN NOW() ELSE NULL END)
+              result = await c.query(
+                `INSERT INTO detalle_pedidos (id_pedido, id_producto, cantidad, estado_cocina, notas, variante, destino_servicio, precio_unitario)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                  RETURNING *`,
                 [
                   id,
@@ -44,54 +47,83 @@ export async function PATCH(request, { params }) {
                   current.variante,
                   current.destino_servicio,
                   current.precio_unitario,
-                  body.motivo_cancelacion || null,
-                  body.estado_cocina === 'cancelado' ? user.id : null,
                 ]
               );
-              return insertedNew;
             }
           }
         }
-        if (!['borrador', 'pendiente', 'preparacion', 'entregado', 'cancelado'].includes(body.estado_cocina)) {
-          throw Object.assign(new Error("Estado de cocina no válido"), { code: "P0001" });
+        if (!result) {
+          if (!['borrador', 'pendiente', 'preparacion', 'entregado', 'no_entregado'].includes(body.estado_cocina)) {
+            throw Object.assign(new Error("Estado de cocina no válido"), { code: "P0001" });
+          }
+          result = await c.query(
+            `UPDATE detalle_pedidos SET estado_cocina = $1
+             WHERE id = $2 AND id_pedido = $3 RETURNING *`,
+            [body.estado_cocina, detalleId, id]
+          );
         }
-        return c.query(
-          `UPDATE detalle_pedidos SET 
-             estado_cocina = $1,
-             motivo_cancelacion = COALESCE($4, motivo_cancelacion),
-             cancelado_por = CASE WHEN $1 = 'cancelado' THEN $5 ELSE cancelado_por END,
-             fecha_cancelacion = CASE WHEN $1 = 'cancelado' THEN NOW() ELSE fecha_cancelacion END
-           WHERE id = $2 AND id_pedido = $3 RETURNING *`,
-          [body.estado_cocina, detalleId, id, body.motivo_cancelacion || null, user.id]
-        );
-      }
-      if (body.cantidad != null) {
-        return c.query(
+      } else if (body.cantidad != null) {
+        result = await c.query(
           `UPDATE detalle_pedidos SET cantidad = $1
            WHERE id = $2 AND id_pedido = $3 AND estado_cocina IN ('borrador', 'pendiente') RETURNING *`,
           [body.cantidad, detalleId, id]
         );
-      }
-      if (body.variante !== undefined) {
-        return c.query(
+      } else if (body.variante !== undefined) {
+        result = await c.query(
           `UPDATE detalle_pedidos SET variante = $1 WHERE id = $2 AND id_pedido = $3 RETURNING *`,
           [body.variante || null, detalleId, id]
         );
-      }
-      if (body.destino_servicio !== undefined) {
+      } else if (body.destino_servicio !== undefined) {
         if (!['local', 'llevar'].includes(body.destino_servicio)) {
           throw Object.assign(new Error("Destino de servicio inválido"), { code: "P0001" });
         }
-        return c.query(
+        result = await c.query(
           `UPDATE detalle_pedidos SET destino_servicio = $1
            WHERE id = $2 AND id_pedido = $3 AND estado_cocina IN ('borrador', 'pendiente') RETURNING *`,
           [body.destino_servicio, detalleId, id]
         );
+      } else {
+        result = await c.query(
+          `UPDATE detalle_pedidos SET notas = $1 WHERE id = $2 AND id_pedido = $3 RETURNING *`,
+          [body.notas ?? null, detalleId, id]
+        );
       }
-      return c.query(
-        `UPDATE detalle_pedidos SET notas = $1 WHERE id = $2 AND id_pedido = $3 RETURNING *`,
-        [body.notas ?? null, detalleId, id]
+
+      // Unificar/Consolidar ítems duplicados del mismo producto, variante, notas y estado
+      await c.query("SET LOCAL app.bypass_triggers = 'true'");
+      await c.query(
+        `WITH dups AS (
+           SELECT id_pedido, id_producto, COALESCE(variante, '') AS me_var, COALESCE(destino_servicio, 'local') AS me_dest, COALESCE(notas, '') AS me_notas, precio_unitario, estado_cocina,
+                  (ARRAY_AGG(id ORDER BY created_at))[1] AS primary_id,
+                  ARRAY_AGG(id ORDER BY created_at) AS all_ids,
+                  SUM(cantidad) AS total_qty
+           FROM detalle_pedidos
+           WHERE id_pedido = $1
+           GROUP BY id_pedido, id_producto, COALESCE(variante, ''), COALESCE(destino_servicio, 'local'), COALESCE(notas, ''), precio_unitario, estado_cocina
+           HAVING COUNT(*) > 1
+         ),
+         upd AS (
+           UPDATE detalle_pedidos d
+           SET cantidad = dups.total_qty
+           FROM dups
+           WHERE d.id = dups.primary_id
+         )
+         DELETE FROM detalle_pedidos d
+         USING dups
+         WHERE d.id = ANY(dups.all_ids) AND d.id <> dups.primary_id;`,
+        [id]
       );
+      // Recalcular pedidos.total tras consolidación
+      await c.query(
+        `UPDATE pedidos SET total = (
+           SELECT COALESCE(SUM(precio_unitario * cantidad), 0)
+           FROM detalle_pedidos
+           WHERE id_pedido = $1 AND estado_cocina NOT IN ('no_entregado', 'anulado', 'cancelado')
+         ) WHERE id = $1`,
+        [id]
+      );
+
+      return result;
     });
     if (!rows[0]) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     return NextResponse.json({ detalle: rows[0] });
@@ -110,6 +142,7 @@ export async function DELETE(req, { params }) {
 
   try {
     const { rowCount } = await withUser(user, async (c) => {
+      await c.query("SET LOCAL app.bypass_triggers = 'true'");
       if (qty && qty > 0) {
         const currentRes = await c.query(
           "SELECT cantidad FROM detalle_pedidos WHERE id = $1 AND id_pedido = $2",

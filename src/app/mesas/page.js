@@ -7,12 +7,14 @@ import { useRealtime } from "@/hooks/useRealtime";
 import { useToast } from "@/components/Toast";
 import { fmt } from "@/lib/formatters";
 import clsx from "clsx";
+import { Utensils, Plus } from "lucide-react";
 
 export default function MesasPage() {
   const [mesas, setMesas] = useState([]);
   const [open, setOpen] = useState(null);
   const [nombre, setNombre] = useState("");
   const [saving, setSaving] = useState(false);
+  const [addingTable, setAddingTable] = useState(false);
   const toast = useToast();
   const router = useRouter();
 
@@ -26,6 +28,21 @@ export default function MesasPage() {
     load();
   }, [load]);
   useRealtime(load);
+
+  async function crearMesa() {
+    setAddingTable(true);
+    try {
+      const res = await fetch("/api/mesas", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al agregar mesa");
+      toast(`Mesa ${data.mesa.numero} creada exitosamente`);
+      load();
+    } catch (err) {
+      toast(err.message, "err");
+    } finally {
+      setAddingTable(false);
+    }
+  }
 
   async function abrir(e) {
     e.preventDefault();
@@ -51,7 +68,19 @@ export default function MesasPage() {
   }
 
   return (
-    <Shell title="Mesas">
+    <Shell
+      title="Mesas"
+      actions={
+        <button
+          onClick={crearMesa}
+          disabled={addingTable}
+          className="btn-primary text-xs flex items-center gap-1.5 py-2 px-3.5 bg-ink text-paper hover:bg-stone-800 rounded-xl transition"
+        >
+          <Plus size={16} />
+          {addingTable ? "Agregando..." : "Agregar Mesa"}
+        </button>
+      }
+    >
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {mesas.map((m) => {
           const ocupada = m.estado === "ocupada";
@@ -65,7 +94,7 @@ export default function MesasPage() {
               className="card group p-5 text-left transition hover:-translate-y-0.5"
             >
               <div className="flex items-start justify-between">
-                <span className="font-display text-3xl">{m.numero}</span>
+                <span className="font-display text-3xl">Mesa {m.numero}</span>
                 <span
                   className={clsx(
                     "h-3 w-3 rounded-full",
@@ -73,8 +102,13 @@ export default function MesasPage() {
                   )}
                 />
               </div>
-              <p className="mt-6 text-sm text-mute">{ocupada ? m.nombre_control : `${m.capacidad} personas`}</p>
-              <p className={clsx("mt-1 text-sm font-medium", ocupada ? "text-wine" : "text-moss")}>
+              <div className="flex items-center gap-2 mt-4 text-mute group-hover:text-ink transition-colors">
+                <Utensils size={18} className={ocupada ? "text-wine" : "text-moss"} />
+                <span className="text-xs font-semibold truncate">
+                  {ocupada ? m.nombre_control : "Comedor"}
+                </span>
+              </div>
+              <p className={clsx("mt-2 text-sm font-medium", ocupada ? "text-wine" : "text-moss")}>
                 {ocupada ? `Ocupada · ${fmt.money(m.total)}` : "Disponible"}
               </p>
             </button>

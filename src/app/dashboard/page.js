@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Shell from "@/components/Shell";
 import { fmt } from "@/lib/formatters";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Download, TrendingUp, Receipt, Store, ShoppingBag } from "lucide-react";
+import { Download, TrendingUp, Receipt, Store, ShoppingBag, ShieldCheck } from "lucide-react";
 
 const PERIODS = [
   { id: "dia", label: "Hoy" },
@@ -85,7 +85,7 @@ export default function DashboardPage() {
           <div key={s.tipo} className="card flex items-center justify-between border border-line bg-white px-5 py-4">
             <div className="flex items-center gap-3">
               {s.tipo === "local" ? <Store size={18} className="text-clay" /> : <ShoppingBag size={18} className="text-clay" />}
-              <div><p className="text-sm font-semibold">{s.tipo === "local" ? "Comer aquí" : "Para llevar"}</p><p className="text-xs text-mute">{s.ordenes} órdenes</p></div>
+              <div><p className="text-sm font-semibold">{s.tipo === "local" ? "Local" : "Para llevar"}</p><p className="text-xs text-mute">{s.ordenes} órdenes</p></div>
             </div>
             <span className="font-mono text-sm font-semibold">{fmt.money(s.total)}</span>
           </div>
@@ -160,7 +160,7 @@ export default function DashboardPage() {
                 <tr key={v.id} className="hover:bg-stone-50/60">
                   <td className="py-3 text-xs text-mute">{fmt.date(v.fecha)}</td>
                   <td className="py-3 font-medium">{v.tipo_pedido === "local" ? `Mesa ${v.mesa_numero}` : v.nombre_control}<span className="ml-2 text-xs font-normal text-mute">{v.nombre_control}</span></td>
-                  <td className="py-3"><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs">{v.tipo_pedido === "local" ? "Aquí" : "Llevar"}</span></td>
+                  <td className="py-3"><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium">{v.tipo_servicio_calculado || (v.tipo_pedido === "local" ? "local" : "llevar")}</span></td>
                   <td className="py-3 text-xs text-mute">{v.mesero_nombre || "—"}</td>
                   <td className="py-3 text-right font-mono font-semibold">{fmt.money(v.total)}</td>
                 </tr>
@@ -171,38 +171,70 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Control de Anulaciones y Merma */}
+      {/* Auditoría del Sistema */}
       <section className="card mt-6 border border-line bg-white p-5 md:p-6">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-wine">Auditoría de Anulaciones y Merma</h2>
-            <p className="mt-1 text-xs text-mute">Platillos retirados o cancelados durante el periodo con su justificación</p>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-ink">Auditoría de Platillos Anulados</h2>
+            <p className="mt-1 text-xs text-mute">Registro de productos cancelados o retirados de órdenes (No entregados / Eliminados)</p>
           </div>
+          <ShieldCheck size={20} className="text-mute" />
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[650px] text-sm">
+          <table className="w-full min-w-[700px] text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs font-semibold text-mute">
-                <th className="pb-3">Fecha/Hora</th>
-                <th className="pb-3">Pedido</th>
-                <th className="pb-3">Platillo</th>
-                <th className="pb-3">Motivo / Justificación</th>
-                <th className="pb-3 text-right">Autorizó</th>
+                <th className="pb-3">Fecha / Hora</th>
+                <th className="pb-3">Pedido / Mesa</th>
+                <th className="pb-3">Platillo Retirado</th>
+                <th className="pb-3">Autorizado por</th>
+                <th className="pb-3 text-right">Monto</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line/50">
-              {(data?.anulados || []).map((a) => (
-                <tr key={a.id} className="hover:bg-red-50/30">
-                  <td className="py-3 text-xs text-mute">{a.fecha_cancelacion ? fmt.date(a.fecha_cancelacion) : "—"}</td>
-                  <td className="py-3 font-medium">{a.nombre_control}</td>
-                  <td className="py-3 font-semibold text-wine">{a.cantidad}x {a.producto_nombre}</td>
-                  <td className="py-3 text-xs text-stone-600 italic">{a.motivo_cancelacion || "Sin justificación registrada"}</td>
-                  <td className="py-3 text-right text-xs font-medium text-ink">{a.cancelado_por_nombre || "Administrador"}</td>
+              {(data?.auditoria || []).map((a) => (
+                <tr key={a.id} className="hover:bg-stone-50/60 transition-colors">
+                  <td className="py-3 text-xs text-mute whitespace-nowrap">{fmt.date(a.fecha)}</td>
+                  <td className="py-3">
+                    <span className="font-medium text-xs text-ink block">
+                      {a.tipo_pedido === "local" ? (a.mesa_numero ? `Mesa ${a.mesa_numero}` : "Mesa") : "Para llevar"}
+                    </span>
+                    <span className="text-[11px] text-mute">{a.nombre_control || "Sin referencia"}</span>
+                  </td>
+                  <td className="py-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-xs text-wine">
+                        {a.cantidad}×
+                      </span>
+                      <span className="text-xs text-ink font-medium">
+                        {a.producto_nombre}
+                        {a.variante ? <span className="text-mute font-normal"> ({a.variante})</span> : ""}
+                      </span>
+                      <span className="rounded bg-rose-50 border border-rose-200 text-rose-700 px-1.5 py-0.2 text-[10px] font-medium">
+                        {a.accion === 'delete' ? 'Eliminado' : 'No entregado'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="py-3">
+                    <span className="text-xs font-medium text-ink">
+                      {a.usuario_nombre || "Sistema"}
+                    </span>
+                    {a.usuario_rol && (
+                      <span className="ml-1.5 text-[10px] font-semibold tracking-wide uppercase px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                        {a.usuario_rol}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-3 text-right font-mono text-xs font-semibold text-mute">
+                    {fmt.money(Number(a.precio_unitario || 0) * Number(a.cantidad || 1))}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {!data?.anulados?.length && <p className="py-8 text-center text-sm text-mute">Sin anulaciones ni pérdidas registradas en este periodo.</p>}
+          {!data?.auditoria?.length && (
+            <p className="py-10 text-center text-sm text-mute">Sin anulaciones ni platillos eliminados en este periodo.</p>
+          )}
         </div>
       </section>
     </Shell>

@@ -21,15 +21,47 @@ export async function PATCH(request, { params }) {
   const body = await request.json();
   try {
     if (body.accion === "enviar_cocina") {
-      const { rows } = await withUser(user, (c) =>
-        c.query(
+      const { rows } = await withUser(user, async (c) => {
+        const res = await c.query(
           `UPDATE detalle_pedidos
            SET estado_cocina = 'pendiente'
            WHERE id_pedido = $1 AND estado_cocina = 'borrador'
            RETURNING id`,
           [id]
-        )
-      );
+        );
+        await c.query("SET LOCAL app.bypass_triggers = 'true'");
+        await c.query(
+          `WITH dups AS (
+             SELECT id_pedido, id_producto, COALESCE(variante, '') AS me_var, COALESCE(destino_servicio, 'local') AS me_dest, COALESCE(notas, '') AS me_notas, precio_unitario, estado_cocina,
+                    (ARRAY_AGG(id ORDER BY created_at))[1] AS primary_id,
+                    ARRAY_AGG(id ORDER BY created_at) AS all_ids,
+                    SUM(cantidad) AS total_qty
+             FROM detalle_pedidos
+             WHERE id_pedido = $1
+             GROUP BY id_pedido, id_producto, COALESCE(variante, ''), COALESCE(destino_servicio, 'local'), COALESCE(notas, ''), precio_unitario, estado_cocina
+             HAVING COUNT(*) > 1
+           ),
+           upd AS (
+             UPDATE detalle_pedidos d
+             SET cantidad = dups.total_qty
+             FROM dups
+             WHERE d.id = dups.primary_id
+           )
+           DELETE FROM detalle_pedidos d
+           USING dups
+           WHERE d.id = ANY(dups.all_ids) AND d.id <> dups.primary_id;`,
+          [id]
+        );
+        await c.query(
+          `UPDATE pedidos SET total = (
+             SELECT COALESCE(SUM(precio_unitario * cantidad), 0)
+             FROM detalle_pedidos
+             WHERE id_pedido = $1 AND estado_cocina NOT IN ('no_entregado', 'anulado', 'cancelado')
+           ) WHERE id = $1`,
+          [id]
+        );
+        return res;
+      });
       if (!rows.length) return NextResponse.json({ error: "No hay platillos nuevos para enviar a cocina" }, { status: 409 });
       return NextResponse.json({ enviados: rows.length });
     }
@@ -38,6 +70,15 @@ export async function PATCH(request, { params }) {
         return NextResponse.json({ error: "Método de pago inválido" }, { status: 400 });
       }
       const { rows } = await withUser(user, async (c) => {
+        await c.query(
+          `UPDATE pedidos SET total = (
+             SELECT COALESCE(SUM(precio_unitario * cantidad), 0)
+             FROM detalle_pedidos
+             WHERE id_pedido = $1 AND estado_cocina NOT IN ('no_entregado', 'anulado', 'cancelado')
+           ) WHERE id = $1 AND estado_pago = 'pendiente'`,
+          [id]
+        );
+
         const orderRes = await c.query("SELECT total FROM pedidos WHERE id = $1 AND estado_pago = 'pendiente'", [id]);
         if (!orderRes.rows[0]) {
           throw Object.assign(new Error("Pedido no disponible para cobro"), { code: "P0001" });
@@ -45,61 +86,38 @@ export async function PATCH(request, { params }) {
         const total = Number(orderRes.rows[0].total);
         let ef = 0;
         let tj = 0;
+        let montoRecibido = Number(body.monto_recibido) || 0;
+        let vuelto = Number(body.vuelto) || 0;
 
         if (body.metodo_pago === "efectivo") {
           ef = total;
+          if (montoRecibido <= 0) montoRecibido = total;
+          if (vuelto <= 0 && montoRecibido > total) vuelto = montoRecibido - total;
         } else if (body.metodo_pago === "tarjeta") {
           tj = total;
+          montoRecibido = total;
+          vuelto = 0;
         } else if (body.metodo_pago === "mixto") {
           ef = Number(body.pago_efectivo) || 0;
           tj = Number(body.pago_tarjeta) || 0;
           if (ef + tj < total) {
             throw Object.assign(new Error("Los montos ingresados no cubren el total de la cuenta"), { code: "P0001" });
           }
+          if (montoRecibido <= 0) montoRecibido = ef + tj;
+          if (vuelto <= 0 && (ef + tj) > total) vuelto = (ef + tj) - total;
         }
 
         return c.query(
           `UPDATE pedidos 
-           SET estado_pago = 'pagada', fecha_pago = NOW(), metodo_pago = $2, pago_efectivo = $3, pago_tarjeta = $4
+           SET estado_pago = 'pagada', fecha_pago = NOW(), metodo_pago = $2, pago_efectivo = $3, pago_tarjeta = $4, monto_recibido = $5, vuelto = $6
            WHERE id = $1 AND estado_pago = 'pendiente' RETURNING *`,
-          [id, body.metodo_pago, ef, tj]
+          [id, body.metodo_pago, ef, tj, montoRecibido, vuelto]
         );
       });
       return NextResponse.json({ pedido: rows[0] });
     }
     if (body.accion === "cambiar_metodo_pago") {
-      if (!["efectivo", "tarjeta", "mixto"].includes(body.metodo_pago)) {
-        return NextResponse.json({ error: "Método de pago inválido" }, { status: 400 });
-      }
-      const { rows } = await withUser(user, async (c) => {
-        const orderRes = await c.query("SELECT total FROM pedidos WHERE id = $1 AND estado_pago = 'pagada'", [id]);
-        if (!orderRes.rows[0]) {
-          throw Object.assign(new Error("Pedido no encontrado o no está pagado"), { code: "P0001" });
-        }
-        const total = Number(orderRes.rows[0].total);
-        let ef = 0;
-        let tj = 0;
-
-        if (body.metodo_pago === "efectivo") {
-          ef = total;
-        } else if (body.metodo_pago === "tarjeta") {
-          tj = total;
-        } else if (body.metodo_pago === "mixto") {
-          ef = Number(body.pago_efectivo) || 0;
-          tj = Number(body.pago_tarjeta) || 0;
-          if (ef + tj < total) {
-            throw Object.assign(new Error("Los montos ingresados no cubren el total de la cuenta"), { code: "P0001" });
-          }
-        }
-
-        return c.query(
-          `UPDATE pedidos 
-           SET metodo_pago = $2, pago_efectivo = $3, pago_tarjeta = $4
-           WHERE id = $1 AND estado_pago = 'pagada' RETURNING *`,
-          [id, body.metodo_pago, ef, tj]
-        );
-      });
-      return NextResponse.json({ pedido: rows[0] });
+      return NextResponse.json({ error: "El método de pago no se puede modificar una vez cobrado el pedido." }, { status: 400 });
     }
     if (body.accion === "cancelar") {
       const { rows } = await withUser(user, async (c) => {

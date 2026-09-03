@@ -3,18 +3,35 @@
 import { useCallback, useEffect, useState } from "react";
 import Shell from "@/components/Shell";
 import { useRealtime } from "@/hooks/useRealtime";
+import { useToast } from "@/components/Toast";
 import { ESTADO_COCINA, fmt } from "@/lib/formatters";
 import clsx from "clsx";
 
 function groupByEstado(detalles) {
+  const map = {
+    pendiente: new Map(),
+    preparacion: new Map(),
+    entregado: new Map(),
+  };
+  for (const d of detalles) {
+    if (!map[d.estado_cocina]) continue;
+    const key = `${d.id_producto}_${d.variante || ''}_${d.destino_servicio || ''}_${d.notas || ''}_${d.precio_unitario}`;
+    if (map[d.estado_cocina].has(key)) {
+      const existing = map[d.estado_cocina].get(key);
+      existing.cantidad += d.cantidad;
+    } else {
+      map[d.estado_cocina].set(key, { ...d });
+    }
+  }
   return {
-    pendiente: detalles.filter((d) => d.estado_cocina === "pendiente"),
-    preparacion: detalles.filter((d) => d.estado_cocina === "preparacion"),
-    entregado: detalles.filter((d) => d.estado_cocina === "entregado"),
+    pendiente: Array.from(map.pendiente.values()),
+    preparacion: Array.from(map.preparacion.values()),
+    entregado: Array.from(map.entregado.values()),
   };
 }
 
 export default function CocinaPage() {
+  const toast = useToast();
   const [pedidos, setPedidos] = useState([]);
   const [selectedItems, setSelectedItems] = useState({}); // { [detalleId]: boolean }
   const [activeSplit, setActiveSplit] = useState(null); // detalleId
@@ -165,7 +182,7 @@ export default function CocinaPage() {
 
                             {/* Main content */}
                             <div className="flex-1 p-3.5">
-                              {activeSplit === d.id ? (
+                              {col.key !== "entregado" && activeSplit === d.id ? (
                                 <div className="flex flex-col gap-2.5">
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs font-medium text-stone-400">
@@ -206,26 +223,6 @@ export default function CocinaPage() {
                                     >
                                       Todo ({d.cantidad})
                                     </button>
-                                    {col.key !== "entregado" && (
-                                      <button
-                                        type="button"
-                                        onClick={async () => {
-                                          const reason = prompt("Motivo de cancelación (ej. Agotado):", "Platillo agotado en cocina");
-                                          if (reason !== null) {
-                                            await fetch(`/api/pedidos/${p.id}/items/${d.id}`, {
-                                              method: "PATCH",
-                                              headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ estado_cocina: "cancelado", motivo_cancelacion: reason }),
-                                            });
-                                            setActiveSplit(null);
-                                            load();
-                                          }
-                                        }}
-                                        className="px-3 bg-red-500/20 text-red-300 font-semibold py-2.5 md:py-1.5 rounded-lg hover:bg-red-500/30 transition active:scale-95"
-                                      >
-                                        Agotado
-                                      </button>
-                                    )}
                                     <button
                                       type="button"
                                       onClick={() => setActiveSplit(null)}
@@ -235,14 +232,11 @@ export default function CocinaPage() {
                                     </button>
                                   </div>
                                 </div>
-                              ) : (
+                              ) : col.key !== "entregado" ? (
                                 <button
                                   type="button"
                                   onClick={() => handleItemClick(p.id, d)}
-                                  className={clsx(
-                                    "w-full text-left flex items-center justify-between min-h-[44px] py-1",
-                                    col.key === "entregado" && "cursor-default"
-                                  )}
+                                  className="w-full text-left flex items-center justify-between min-h-[44px] py-1"
                                 >
                                   <span>
                                     <span className="block text-base font-medium text-stone-50">
@@ -257,12 +251,26 @@ export default function CocinaPage() {
                                       </span>
                                     )}
                                   </span>
-                                  {col.key !== "entregado" && (
-                                    <span className="text-[11px] uppercase tracking-wide text-stone-400 opacity-60 group-hover:opacity-100 transition">
-                                      Tocar
-                                    </span>
-                                  )}
+                                  <span className="text-[11px] uppercase tracking-wide text-stone-400 opacity-60 group-hover:opacity-100 transition">
+                                    Tocar
+                                  </span>
                                 </button>
+                              ) : (
+                                <div className="w-full text-left flex items-center justify-between min-h-[44px] py-1 cursor-default">
+                                  <span>
+                                    <span className="block text-base font-medium text-stone-50">
+                                      {d.cantidad}× {d.producto_nombre}
+                                    </span>
+                                    <span className="block text-xs text-stone-400">
+                                      {[d.variante, d.destino_servicio === "llevar" ? "Para llevar" : "Comer aquí"].filter(Boolean).join(" · ")}
+                                    </span>
+                                    {d.notas && (
+                                      <span className="mt-1 block text-xs font-semibold text-amber-300">
+                                        Nota: {d.notas}
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
                               )}
                             </div>
                           </div>

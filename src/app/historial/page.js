@@ -6,20 +6,22 @@ import { useRealtime } from "@/hooks/useRealtime";
 import { fmt } from "@/lib/formatters";
 import clsx from "clsx";
 import { printTicket } from "@/lib/printTicket";
-import { useToast } from "@/components/Toast";
 
 export default function HistorialPage() {
   const [pedidos, setPedidos] = useState([]);
   const [estado, setEstado] = useState("pagada"); // "pagada" | "cancelada"
+  const [fechaFilter, setFechaFilter] = useState("hoy"); // "hoy" | "todos" | "custom"
+  const [customDate, setCustomDate] = useState("");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(null);
-  const toast = useToast();
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/pedidos?estado=${estado}`);
+    const paramFecha = fechaFilter === "custom" ? customDate : fechaFilter;
+    if (fechaFilter === "custom" && !customDate) return;
+    const res = await fetch(`/api/pedidos?estado=${estado}&fecha=${paramFecha || "hoy"}`);
     const data = await res.json();
     setPedidos(data.pedidos || []);
-  }, [estado]);
+  }, [estado, fechaFilter, customDate]);
 
   useEffect(() => {
     load();
@@ -42,6 +44,7 @@ export default function HistorialPage() {
       <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
         {/* Left Side: Filter and List */}
         <section className="flex flex-col gap-4">
+          {/* Filter Status: Cobrados vs Cancelados */}
           <div className="flex gap-2">
             <button
               onClick={() => {
@@ -73,6 +76,69 @@ export default function HistorialPage() {
             </button>
           </div>
 
+          {/* Filter Date: Hoy vs Todos vs DatePicker */}
+          <div className="flex flex-col gap-2 bg-stone-50 p-2.5 rounded-2xl border border-line">
+            <span className="text-[11px] font-semibold text-mute uppercase tracking-wider">Filtro por fecha:</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setFechaFilter("hoy");
+                  setSelectedId(null);
+                }}
+                className={clsx(
+                  "flex-1 rounded-lg py-1.5 text-xs font-medium border transition",
+                  fechaFilter === "hoy"
+                    ? "bg-clay text-white border-clay font-semibold"
+                    : "bg-white text-mute border-line hover:text-ink"
+                )}
+              >
+                Hoy
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFechaFilter("todos");
+                  setSelectedId(null);
+                }}
+                className={clsx(
+                  "flex-1 rounded-lg py-1.5 text-xs font-medium border transition",
+                  fechaFilter === "todos"
+                    ? "bg-clay text-white border-clay font-semibold"
+                    : "bg-white text-mute border-line hover:text-ink"
+                )}
+              >
+                Todos
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFechaFilter("custom");
+                  setSelectedId(null);
+                }}
+                className={clsx(
+                  "flex-1 rounded-lg py-1.5 text-xs font-medium border transition",
+                  fechaFilter === "custom"
+                    ? "bg-clay text-white border-clay font-semibold"
+                    : "bg-white text-mute border-line hover:text-ink"
+                )}
+              >
+                Por Fecha
+              </button>
+            </div>
+            {fechaFilter === "custom" && (
+              <input
+                type="date"
+                className="input w-full mt-1 text-xs"
+                value={customDate}
+                onChange={(e) => {
+                  setCustomDate(e.target.value);
+                  setSelectedId(null);
+                }}
+              />
+            )}
+          </div>
+
           <input
             className="input w-full"
             placeholder="Buscar por cliente, mesa o mesero..."
@@ -80,12 +146,13 @@ export default function HistorialPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
 
-          <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-270px)] pr-1">
+          <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-320px)] pr-1">
             {filtered.length === 0 ? (
               <p className="text-sm text-mute text-center py-6">No se encontraron pedidos.</p>
             ) : (
               filtered.map((p) => {
                 const active = selectedPedido?.id === p.id;
+                const hasUndelivered = (p.detalles || []).some((d) => ["no_entregado", "anulado", "cancelado"].includes(d.estado_cocina));
                 return (
                   <button
                     key={p.id}
@@ -102,6 +169,13 @@ export default function HistorialPage() {
                       <span className="text-xs text-mute">{fmt.time(p.fecha)}</span>
                     </div>
                     <p className="text-sm text-mute truncate mt-1">{p.nombre_control}</p>
+                    {hasUndelivered && (
+                      <div className="mt-1.5">
+                        <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <span>⚠️</span> Con ítems no entregados
+                        </span>
+                      </div>
+                    )}
                     <div className="mt-3 flex items-center justify-between border-t border-line/60 pt-2 text-xs">
                       <span className="text-mute capitalize">Por: {p.mesero_nombre}</span>
                       <span className="font-medium text-sm text-ink">{fmt.money(p.total)}</span>
@@ -146,6 +220,23 @@ export default function HistorialPage() {
                 </div>
               </div>
 
+              {/* Undelivered Warning Banner */}
+              {(selectedPedido.detalles || []).some((d) => ["no_entregado", "anulado", "cancelado"].includes(d.estado_cocina)) && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 text-xs font-medium space-y-1">
+                  <p className="font-bold flex items-center gap-1.5 text-rose-900">
+                    <span>⚠️ Ítems No Entregados / Anulados en este pedido:</span>
+                  </p>
+                  <ul className="list-disc list-inside space-y-0.5 text-rose-700">
+                    {selectedPedido.detalles.filter((d) => ["no_entregado", "anulado", "cancelado"].includes(d.estado_cocina)).map((d) => (
+                      <li key={d.id}>
+                        <span className="font-semibold">{d.cantidad}× {d.producto_nombre}</span>
+                        {d.variante ? ` (${d.variante})` : ""} — Marcado como no entregado (Descontado $0.00)
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Items Table */}
               <div>
                 <p className="text-xs uppercase tracking-wider text-mute mb-3 font-semibold">Detalle de Consumo</p>
@@ -160,33 +251,36 @@ export default function HistorialPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedPedido.detalles.map((d) => (
-                        <tr key={d.id} className={clsx("border-b border-line/60 last:border-0", d.estado_cocina === "no_entregado" && "bg-red-50/50")}>
-                          <td className="px-4 py-3 font-mono text-xs">{d.cantidad}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <span className={clsx("font-medium", d.estado_cocina === "no_entregado" && "line-through text-rose-700")}>
-                                {d.producto_nombre}
-                              </span>
-                              {d.estado_cocina === "no_entregado" && (
-                                <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded">
-                                  No Entregado
+                      {selectedPedido.detalles.map((d) => {
+                        const isUndelivered = ["no_entregado", "anulado", "cancelado"].includes(d.estado_cocina);
+                        return (
+                          <tr key={d.id} className={clsx("border-b border-line/60 last:border-0", isUndelivered && "bg-rose-50/60")}>
+                            <td className="px-4 py-3 font-mono text-xs">{d.cantidad}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className={clsx("font-medium", isUndelivered && "line-through text-rose-700")}>
+                                  {d.producto_nombre}
                                 </span>
+                                {isUndelivered && (
+                                  <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded">
+                                    No Entregado
+                                  </span>
+                                )}
+                              </div>
+                              {d.variante && <span className="ml-2 text-xs text-mute">({d.variante})</span>}
+                              {d.notas && <p className="text-xs text-wine mt-0.5">Nota: {d.notas}</p>}
+                            </td>
+                            <td className="px-4 py-3 text-mute font-mono text-xs">{fmt.money(d.precio_unitario)}</td>
+                            <td className="px-4 py-3 text-right font-mono text-xs font-medium">
+                              {isUndelivered ? (
+                                <span className="text-rose-600 font-bold">$0.00</span>
+                              ) : (
+                                fmt.money(d.precio_unitario * d.cantidad)
                               )}
-                            </div>
-                            {d.variante && <span className="ml-2 text-xs text-mute">({d.variante})</span>}
-                            {d.notas && <p className="text-xs text-wine mt-0.5">Nota: {d.notas}</p>}
-                          </td>
-                          <td className="px-4 py-3 text-mute font-mono text-xs">{fmt.money(d.precio_unitario)}</td>
-                          <td className="px-4 py-3 text-right font-mono text-xs font-medium">
-                            {d.estado_cocina === "no_entregado" ? (
-                              <span className="text-rose-600 font-bold">$0.00</span>
-                            ) : (
-                              fmt.money(d.precio_unitario * d.cantidad)
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -197,46 +291,25 @@ export default function HistorialPage() {
                 <div className="text-sm space-y-1 text-mute">
                   <p className="font-semibold text-xs uppercase tracking-wider mb-2">Información de Pago</p>
                   {selectedPedido.estado_pago === "pagada" ? (
-                    <div className="flex items-center gap-2">
-                      <span>Método:</span>
-                      <select
-                        value={selectedPedido.metodo_pago || "efectivo"}
-                        onChange={async (e) => {
-                          const newMetodo = e.target.value;
-                          let body = { accion: "cambiar_metodo_pago", metodo_pago: newMetodo };
-                          if (newMetodo === "mixto") {
-                            const efVal = window.prompt(`Total es ${fmt.money(selectedPedido.total)}. ¿Cuánto pagó en Efectivo?`);
-                            if (efVal === null) return;
-                            const ef = parseFloat(efVal) || 0;
-                            const tj = Math.max(0, Number(selectedPedido.total) - ef);
-                            body.pago_efectivo = ef;
-                            body.pago_tarjeta = tj;
-                          }
-                          const res = await fetch(`/api/pedidos/${selectedPedido.id}`, {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify(body)
-                          });
-                          const data = await res.json();
-                          if (!res.ok) return toast(data.error || "No se pudo cambiar el método de pago", "err");
-                          toast("Método de pago actualizado");
-                          load();
-                        }}
-                        className="rounded border border-line bg-white px-2 py-1 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-clay"
-                      >
-                        <option value="efectivo">Efectivo</option>
-                        <option value="tarjeta">Tarjeta</option>
-                        <option value="mixto">Mixto (Efectivo + Tarjeta)</option>
-                      </select>
+                    <div className="space-y-1 text-xs">
+                      <p>
+                        Método: <span className="font-semibold text-ink capitalize">{selectedPedido.metodo_pago || "efectivo"}</span>
+                      </p>
+                      {selectedPedido.metodo_pago === "mixto" && (
+                        <div className="text-xs space-y-0.5 mt-1.5 pl-2 border-l border-line text-mute">
+                          <p>Efectivo: <span className="font-mono font-medium text-ink">{fmt.money(selectedPedido.pago_efectivo)}</span></p>
+                          <p>Tarjeta: <span className="font-mono font-medium text-ink">{fmt.money(selectedPedido.pago_tarjeta)}</span></p>
+                        </div>
+                      )}
+                      {Number(selectedPedido.monto_recibido || 0) > 0 && (
+                        <p>Monto Recibido: <span className="font-mono font-medium text-ink">{fmt.money(selectedPedido.monto_recibido)}</span></p>
+                      )}
+                      {Number(selectedPedido.vuelto || 0) > 0 && (
+                        <p>Vuelto Entregado: <span className="font-mono font-bold text-moss">{fmt.money(selectedPedido.vuelto)}</span></p>
+                      )}
                     </div>
                   ) : (
-                    <p className="text-xs text-wine capitalize">Estado: {selectedPedido.estado_pago}</p>
-                  )}
-                  {selectedPedido.estado_pago === "pagada" && selectedPedido.metodo_pago === "mixto" && (
-                    <div className="text-xs space-y-0.5 mt-1.5 pl-2 border-l border-line">
-                      <p>Efectivo: <span className="font-mono font-medium text-ink">{fmt.money(selectedPedido.pago_efectivo)}</span></p>
-                      <p>Tarjeta: <span className="font-mono font-medium text-ink">{fmt.money(selectedPedido.pago_tarjeta)}</span></p>
-                    </div>
+                    <p className="text-xs text-wine capitalize font-semibold">Estado: {selectedPedido.estado_pago}</p>
                   )}
                 </div>
 

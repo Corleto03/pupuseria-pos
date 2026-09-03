@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS public.pedidos (
   metodo_pago     TEXT CHECK (metodo_pago IN ('efectivo', 'tarjeta', 'mixto')),
   pago_efectivo   NUMERIC(10,2) NOT NULL DEFAULT 0,
   pago_tarjeta    NUMERIC(10,2) NOT NULL DEFAULT 0,
+  monto_recibido  NUMERIC(10,2) NOT NULL DEFAULT 0,
+  vuelto          NUMERIC(10,2) NOT NULL DEFAULT 0,
   total           NUMERIC(10,2) NOT NULL DEFAULT 0,
   fecha           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fecha_pago      TIMESTAMPTZ,
@@ -75,7 +77,7 @@ CREATE TABLE IF NOT EXISTS public.detalle_pedidos (
   cantidad       INT NOT NULL DEFAULT 1 CHECK (cantidad > 0),
   -- Borrador no llega a cocina hasta que el mesero lo envía expresamente.
   estado_cocina  TEXT NOT NULL DEFAULT 'borrador'
-                   CHECK (estado_cocina IN ('borrador', 'pendiente', 'preparacion', 'entregado')),
+                   CHECK (estado_cocina IN ('borrador', 'pendiente', 'preparacion', 'entregado', 'no_entregado')),
   destino_servicio TEXT NOT NULL DEFAULT 'local'
                    CHECK (destino_servicio IN ('local', 'llevar')),
   notas          TEXT,
@@ -102,44 +104,23 @@ ALTER TABLE public.detalle_pedidos
   ALTER COLUMN destino_servicio SET DEFAULT 'local',
   ALTER COLUMN destino_servicio SET NOT NULL;
 ALTER TABLE public.pedidos ADD COLUMN IF NOT EXISTS fecha_pago TIMESTAMPTZ;
-ALTER TABLE public.detalle_pedidos ADD COLUMN IF NOT EXISTS motivo_cancelacion TEXT;
-ALTER TABLE public.detalle_pedidos ADD COLUMN IF NOT EXISTS cancelado_por UUID REFERENCES public.usuarios(id);
-ALTER TABLE public.detalle_pedidos ADD COLUMN IF NOT EXISTS fecha_cancelacion TIMESTAMPTZ;
-
 ALTER TABLE public.detalle_pedidos DROP CONSTRAINT IF EXISTS detalle_pedidos_estado_cocina_check;
 ALTER TABLE public.detalle_pedidos
   ADD CONSTRAINT detalle_pedidos_estado_cocina_check
-  CHECK (estado_cocina IN ('borrador', 'pendiente', 'preparacion', 'entregado', 'cancelado'));
+  CHECK (estado_cocina IN ('borrador', 'pendiente', 'preparacion', 'entregado', 'no_entregado', 'anulado', 'cancelado'));
 ALTER TABLE public.detalle_pedidos DROP CONSTRAINT IF EXISTS detalle_pedidos_destino_servicio_check;
 ALTER TABLE public.detalle_pedidos
   ADD CONSTRAINT detalle_pedidos_destino_servicio_check
   CHECK (destino_servicio IN ('local', 'llevar'));
 CREATE INDEX IF NOT EXISTS idx_detalle_destino ON public.detalle_pedidos(destino_servicio);
 CREATE INDEX IF NOT EXISTS idx_productos_cat ON public.productos(categoria);
-
--- Tabla para Control y Arqueo de Cajas (Turnos)
-CREATE TABLE IF NOT EXISTS public.cajas_turnos (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  id_usuario_apertura UUID NOT NULL REFERENCES public.usuarios(id),
-  id_usuario_cierre UUID REFERENCES public.usuarios(id),
-  fecha_apertura TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_cierre TIMESTAMPTZ,
-  monto_inicial NUMERIC(10,2) NOT NULL CHECK (monto_inicial >= 0),
-  total_ventas_efectivo NUMERIC(10,2) DEFAULT 0,
-  total_ventas_tarjeta NUMERIC(10,2) DEFAULT 0,
-  efectivo_esperado NUMERIC(10,2) DEFAULT 0,
-  efectivo_real NUMERIC(10,2),
-  diferencia NUMERIC(10,2),
-  estado TEXT NOT NULL DEFAULT 'abierta' CHECK (estado IN ('abierta', 'cerrada')),
-  notas TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_cajas_turnos_estado ON public.cajas_turnos(estado);
-CREATE INDEX IF NOT EXISTS idx_cajas_turnos_fecha ON public.cajas_turnos(fecha_apertura);
 ALTER TABLE public.usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
 ALTER TABLE public.usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('superadmin', 'admin', 'gerente', 'mesero', 'cocinero', 'cajero'));
 ALTER TABLE public.pedidos ADD COLUMN IF NOT EXISTS metodo_pago TEXT;
 ALTER TABLE public.pedidos DROP CONSTRAINT IF EXISTS pedidos_metodo_pago_check;
 ALTER TABLE public.pedidos ADD CONSTRAINT pedidos_metodo_pago_check CHECK (metodo_pago IN ('efectivo', 'tarjeta', 'mixto') OR metodo_pago IS NULL);
+ALTER TABLE public.pedidos ADD COLUMN IF NOT EXISTS monto_recibido NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE public.pedidos ADD COLUMN IF NOT EXISTS vuelto NUMERIC(10,2) DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS public.auditoria (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -286,7 +267,7 @@ BEGIN
   SET total = (
     SELECT COALESCE(SUM(precio_unitario * cantidad), 0)
     FROM public.detalle_pedidos
-    WHERE id_pedido = v_id AND estado_cocina <> 'cancelado'
+    WHERE id_pedido = v_id AND estado_cocina NOT IN ('no_entregado', 'anulado', 'cancelado')
   )
   WHERE id = v_id;
   RETURN COALESCE(NEW, OLD);
@@ -331,29 +312,24 @@ CREATE TRIGGER trg_sync_mesa
 
 CREATE OR REPLACE FUNCTION public.protect_detalle_pendiente()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+  v_role TEXT := public.current_app_role();
 BEGIN
+  -- Allow admins or system internal operations to bypass restrictions
+  IF v_role IN ('superadmin', 'admin') OR current_setting('app.bypass_triggers', true) = 'true' THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
   IF TG_OP = 'DELETE' THEN
     IF OLD.estado_cocina NOT IN ('borrador', 'pendiente') THEN
-      RAISE EXCEPTION 'Solo se pueden eliminar productos antes de que comiencen a prepararse'
-        USING ERRCODE = 'P0002';
+      RAISE EXCEPTION 'Solo se pueden eliminar productos antes de que comiencen a prepararse' USING ERRCODE = 'P0002';
     END IF;
     RETURN OLD;
   END IF;
 
   IF TG_OP = 'UPDATE' THEN
-    -- Permitir anulación a estado 'cancelado' por administradores o gerentes
-    IF NEW.estado_cocina = 'cancelado' THEN
-      IF public.current_app_role() NOT IN ('superadmin', 'admin', 'gerente')
-         AND COALESCE(current_setting('app.bypass_cancel_check', true), '') <> 'true' THEN
-        RAISE EXCEPTION 'Solo administradores o gerentes pueden anular un platillo' USING ERRCODE = 'P0002';
-      END IF;
-      RETURN NEW;
-    END IF;
-
+    -- 1. Validate state transitions
     IF NEW.estado_cocina IS DISTINCT FROM OLD.estado_cocina THEN
-      IF OLD.estado_cocina = 'cancelado' THEN
-        RAISE EXCEPTION 'Un producto cancelado no puede modificar su estado' USING ERRCODE = 'P0002';
-      END IF;
       IF OLD.estado_cocina = 'borrador' AND NEW.estado_cocina <> 'pendiente' THEN
         RAISE EXCEPTION 'De Borrador solo se puede enviar a Cocina' USING ERRCODE = 'P0002';
       END IF;
@@ -367,16 +343,17 @@ BEGIN
         RAISE EXCEPTION 'Un producto entregado no cambia de estado' USING ERRCODE = 'P0002';
       END IF;
     END IF;
+
+    -- 2. Prevent editing fields on items already sent to kitchen
     IF (NEW.id_producto IS DISTINCT FROM OLD.id_producto
         OR NEW.variante IS DISTINCT FROM OLD.variante
         OR NEW.notas IS DISTINCT FROM OLD.notas
         OR NEW.destino_servicio IS DISTINCT FROM OLD.destino_servicio)
        AND OLD.estado_cocina NOT IN ('borrador', 'pendiente') THEN
-      RAISE EXCEPTION 'Solo se pueden modificar platillos antes de que comiencen a prepararse'
-        USING ERRCODE = 'P0002';
+      RAISE EXCEPTION 'No se puede editar un platillo que ya fue enviado a cocina' USING ERRCODE = 'P0002';
     END IF;
-    -- Cocina puede separar una parte para avanzar su estado; nunca aumentar ni
-    -- editar directamente un ítem ya enviado.
+
+    -- 3. Quantity changes: allow decrease (for kitchen split), block increase
     IF NEW.cantidad IS DISTINCT FROM OLD.cantidad
        AND OLD.estado_cocina NOT IN ('borrador', 'pendiente')
        AND NEW.cantidad >= OLD.cantidad THEN
@@ -384,6 +361,7 @@ BEGIN
         USING ERRCODE = 'P0002';
     END IF;
   END IF;
+
   RETURN NEW;
 END;
 $$;
@@ -401,7 +379,7 @@ BEGIN
   IF NEW.estado_pago = 'pagada' AND OLD.estado_pago <> 'pagada' THEN
     SELECT COUNT(*) INTO pending
     FROM public.detalle_pedidos
-    WHERE id_pedido = NEW.id AND estado_cocina NOT IN ('entregado', 'cancelado');
+    WHERE id_pedido = NEW.id AND estado_cocina NOT IN ('entregado', 'no_entregado', 'anulado', 'cancelado');
     IF pending > 0 THEN
       RAISE EXCEPTION 'No se puede cobrar: hay % producto(s) sin entregar o cancelar', pending
         USING ERRCODE = 'P0001';
@@ -524,9 +502,6 @@ CREATE TRIGGER trg_audit_productos AFTER INSERT OR UPDATE OR DELETE ON public.pr
 DROP TRIGGER IF EXISTS trg_audit_usuarios ON public.usuarios;
 CREATE TRIGGER trg_audit_usuarios AFTER INSERT OR UPDATE OR DELETE ON public.usuarios
   FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
-DROP TRIGGER IF EXISTS trg_audit_cajas ON public.cajas_turnos;
-CREATE TRIGGER trg_audit_cajas AFTER INSERT OR UPDATE OR DELETE ON public.cajas_turnos
-  FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
 
 -- ─────────────────────────────────────────────
 -- RLS
@@ -538,7 +513,6 @@ ALTER TABLE public.pedidos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detalle_pedidos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.auditoria ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ajustes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.cajas_turnos ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.usuarios FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.mesas FORCE ROW LEVEL SECURITY;
@@ -547,16 +521,6 @@ ALTER TABLE public.pedidos FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.detalle_pedidos FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.auditoria FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.ajustes FORCE ROW LEVEL SECURITY;
-ALTER TABLE public.cajas_turnos FORCE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS cajas_select ON public.cajas_turnos;
-CREATE POLICY cajas_select ON public.cajas_turnos FOR SELECT
-  USING (public.is_staff());
-
-DROP POLICY IF EXISTS cajas_write ON public.cajas_turnos;
-CREATE POLICY cajas_write ON public.cajas_turnos FOR ALL
-  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'))
-  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'));
 
 DROP POLICY IF EXISTS usuarios_select ON public.usuarios;
 CREATE POLICY usuarios_select ON public.usuarios FOR SELECT
@@ -609,7 +573,7 @@ CREATE POLICY detalle_select ON public.detalle_pedidos FOR SELECT
 DROP POLICY IF EXISTS detalle_insert ON public.detalle_pedidos;
 CREATE POLICY detalle_insert ON public.detalle_pedidos FOR INSERT
   WITH CHECK (
-    public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero')
+    public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cocinero', 'mesero', 'cajero')
     AND EXISTS (
       SELECT 1 FROM public.pedidos p
       WHERE p.id = id_pedido AND p.estado_pago = 'pendiente'
@@ -624,7 +588,7 @@ CREATE POLICY detalle_update ON public.detalle_pedidos FOR UPDATE
 
 DROP POLICY IF EXISTS detalle_delete ON public.detalle_pedidos;
 CREATE POLICY detalle_delete ON public.detalle_pedidos FOR DELETE
-  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero'));
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cocinero', 'mesero', 'cajero'));
 
 DROP POLICY IF EXISTS auditoria_select ON public.auditoria;
 CREATE POLICY auditoria_select ON public.auditoria FOR SELECT
@@ -653,7 +617,7 @@ BEGIN
 END
 $$;
 
--- 2. Asignar permisos a los roles creados
+-- 2. Asignar permisos al rol creado
 DO $$
 BEGIN
   EXECUTE format('GRANT CONNECT ON DATABASE %I TO pupuseria_app, pupuseria_prod', current_database());
@@ -682,7 +646,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 -- ─────────────────────────────────────────────
 INSERT INTO public.mesas (numero, capacidad)
 SELECT g, CASE WHEN g <= 8 THEN 4 ELSE 6 END
-FROM generate_series(1, 12) AS g
+FROM generate_series(1, 10) AS g
 ON CONFLICT (numero) DO NOTHING;
 
 INSERT INTO public.productos (nombre, categoria, precio, especialidad, sort_order) VALUES
@@ -703,9 +667,32 @@ INSERT INTO public.productos (nombre, categoria, precio, especialidad, sort_orde
 ON CONFLICT DO NOTHING;
 
 INSERT INTO public.ajustes (clave, valor) VALUES
-  ('nombre_restaurante', 'OceanSis'),
+  ('nombre_restaurante', 'La Pupusa'),
   ('logo_url', '')
 ON CONFLICT (clave) DO NOTHING;
 
 -- Las cuentas iniciales se crean desde scripts/setup-db.mjs usando variables
 -- privadas BOOTSTRAP_*; no se incluyen usuarios ni contraseñas en Git.
+CREATE TABLE IF NOT EXISTS public.caja (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+  apertura NUMERIC(10,2) NOT NULL DEFAULT 0,
+  cierre NUMERIC(10,2),
+  efectivo NUMERIC(10,2) DEFAULT 0,
+  tarjeta NUMERIC(10,2) DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.caja ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.caja FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS caja_select ON public.caja;
+CREATE POLICY caja_select ON public.caja FOR SELECT
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'));
+
+DROP POLICY IF EXISTS caja_write ON public.caja;
+CREATE POLICY caja_write ON public.caja FOR ALL
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'))
+  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.caja TO pupuseria_app, pupuseria_prod;

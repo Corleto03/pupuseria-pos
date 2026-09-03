@@ -5,105 +5,84 @@ import Shell from "@/components/Shell";
 import CobroModal from "@/components/CobroModal";
 import { useRealtime } from "@/hooks/useRealtime";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/hooks/useAuth";
 import { fmt } from "@/lib/formatters";
 import clsx from "clsx";
 import { printTicket } from "@/lib/printTicket";
-import { Lock, Unlock, DollarSign, Receipt, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 function ready(p) {
   const dets = p.detalles || [];
-  const activeDets = dets.filter((d) => d.estado_cocina !== "cancelado");
-  return activeDets.length > 0 && activeDets.every((d) => d.estado_cocina === "entregado");
+  return dets.length > 0 && dets.every((d) => ["entregado", "no_entregado", "anulado", "cancelado"].includes(d.estado_cocina));
 }
 
 export default function CajaPage() {
   const [mesas, setMesas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
+  const [caja, setCaja] = useState(null);
+  const [ventas, setVentas] = useState({ efectivo: 0, tarjeta: 0 });
+  const [montoApertura, setMontoApertura] = useState("");
   const [cobrar, setCobrar] = useState(null);
+  const [showCerrar, setShowCerrar] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [turno, setTurno] = useState(null);
-  const [showApertura, setShowApertura] = useState(false);
-  const [showCierre, setShowCierre] = useState(false);
-  const [montoInicialInput, setMontoInicialInput] = useState("");
-  const [efectivoRealInput, setEfectivoRealInput] = useState("");
-  const [notasTurnoInput, setNotasTurnoInput] = useState("");
   const toast = useToast();
-
-  const loadTurno = useCallback(async () => {
-    try {
-      const res = await fetch("/api/caja/turno");
-      const data = await res.json();
-      setTurno(data.turno || null);
-    } catch {
-      setTurno(null);
-    }
-  }, []);
+  const { user } = useAuth();
 
   const load = useCallback(async () => {
-    const [a, b] = await Promise.all([fetch("/api/mesas"), fetch("/api/pedidos?estado=pendiente")]);
+    const [a, b, c] = await Promise.all([
+      fetch("/api/mesas"),
+      fetch("/api/pedidos?estado=pendiente"),
+      fetch("/api/caja"),
+    ]);
     const da = await a.json();
     const db = await b.json();
+    const dc = await c.json();
     setMesas(da.mesas || []);
     setPedidos(db.pedidos || []);
-    await loadTurno();
-  }, [loadTurno]);
+    setCaja(dc.caja || null);
+    setVentas(dc.ventas || { efectivo: 0, tarjeta: 0 });
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
   useRealtime(load);
 
-  async function handleAbrirTurno(e) {
+  async function abrirCaja(e) {
     e.preventDefault();
     setSaving(true);
-    try {
-      const res = await fetch("/api/caja/turno", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ monto_inicial: montoInicialInput, notas: notasTurnoInput }),
-      });
-      const data = await res.json();
-      setSaving(false);
-      if (!res.ok) return toast(data.error, "err");
-      toast("Caja abierta exitosamente");
-      setShowApertura(false);
-      setMontoInicialInput("");
-      setNotasTurnoInput("");
-      loadTurno();
-    } catch {
-      setSaving(false);
-      toast("Error de conexión", "err");
+    const res = await fetch("/api/caja", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accion: "abrir", apertura: Number(montoApertura) }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const err = await res.json();
+      return toast(err.error, "err");
     }
+    toast("Caja abierta correctamente");
+    setMontoApertura("");
+    load();
   }
 
-  async function handleCerrarTurno(e) {
-    e.preventDefault();
+  async function cerrarCaja() {
     setSaving(true);
-    try {
-      const res = await fetch("/api/caja/turno", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ efectivo_real: efectivoRealInput, notas: notasTurnoInput }),
-      });
-      const data = await res.json();
-      setSaving(false);
-      if (!res.ok) return toast(data.error, "err");
-      toast("Arqueo y cierre de caja registrado");
-      setShowCierre(false);
-      setEfectivoRealInput("");
-      setNotasTurnoInput("");
-      loadTurno();
-    } catch {
-      setSaving(false);
-      toast("Error de conexión", "err");
+    const res = await fetch("/api/caja", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accion: "cerrar" }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const err = await res.json();
+      return toast(err.error, "err");
     }
+    toast("Caja cerrada correctamente");
+    setShowCerrar(false);
+    load();
   }
 
   async function confirmar(_pedido, pago) {
-    if (pago?.refreshOnly) {
-      load();
-      return;
-    }
     setSaving(true);
     const res = await fetch(`/api/pedidos/${cobrar.id}`, {
       method: "PATCH",
@@ -124,40 +103,64 @@ export default function CajaPage() {
 
   return (
     <Shell title="Caja">
-      {/* Barra de Estado de Caja */}
-      <div className="mb-6 rounded-2xl bg-paper p-4 border border-line flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className={clsx("p-2.5 rounded-xl", turno ? "bg-moss/10 text-moss" : "bg-wine/10 text-wine")}>
-            {turno ? <Unlock size={20} /> : <Lock size={20} />}
-          </div>
+      {/* Panel de Gestión de Caja */}
+      <div className="card mb-6 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm">
-                {turno ? `Turno Abierto (${turno.usuario_apertura_nombre})` : "Caja Cerrada"}
-              </span>
-              <span className={clsx("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase", turno ? "bg-moss/20 text-moss" : "bg-wine/20 text-wine")}>
-                {turno ? "Activo" : "Sin Apertura"}
-              </span>
-            </div>
-            {turno ? (
-              <p className="text-xs text-mute mt-0.5">
-                Fondo Inicial: <span className="font-medium text-ink">{fmt.money(turno.monto_inicial)}</span> · Ventas Efectivo: <span className="font-medium text-ink">{fmt.money(turno.total_ventas_efectivo)}</span> · Ventas Tarjeta: <span className="font-medium text-ink">{fmt.money(turno.total_ventas_tarjeta)}</span>
-              </p>
-            ) : (
-              <p className="text-xs text-mute mt-0.5">Debe abrir caja para iniciar operaciones del día.</p>
-            )}
+            <h2 className="text-base font-semibold">Caja del Día</h2>
+            <p className="text-xs text-mute">
+              Estado:{" "}
+              {caja ? (
+                caja.cierre !== null ? (
+                  <span className="font-semibold text-amber-500">Cerrada</span>
+                ) : (
+                  <span className="font-semibold text-emerald-500">Abierta</span>
+                )
+              ) : (
+                <span className="font-semibold text-rose-500">No iniciada</span>
+              )}
+            </p>
           </div>
-        </div>
 
-        <div>
-          {turno ? (
-            <button onClick={() => { loadTurno(); setShowCierre(true); }} className="btn-primary bg-wine hover:bg-wine/90 text-xs flex items-center gap-2">
-              <Receipt size={14} /> Realizar Arqueo / Cierre de Caja
-            </button>
+          {!caja || caja.cierre !== null ? (
+            <form onSubmit={abrirCaja} className="flex items-center gap-2">
+              <input
+                type="number"
+                step="0.01"
+                required
+                placeholder="Monto inicial ($)"
+                value={montoApertura}
+                onChange={(e) => setMontoApertura(e.target.value)}
+                className="input text-xs w-36"
+              />
+              <button type="submit" disabled={saving} className="btn-primary text-xs">
+                Abrir Caja
+              </button>
+            </form>
           ) : (
-            <button onClick={() => setShowApertura(true)} className="btn-primary text-xs flex items-center gap-2">
-              <DollarSign size={14} /> Apertura de Caja
-            </button>
+            <div className="flex items-center gap-4 text-xs">
+              <div>
+                <span className="text-mute block">Apertura:</span>
+                <span className="font-semibold">{fmt.money(caja.apertura)}</span>
+              </div>
+              <div>
+                <span className="text-mute block">Efectivo hoy:</span>
+                <span className="font-semibold">{fmt.money(ventas.efectivo)}</span>
+              </div>
+              <div>
+                <span className="text-mute block">Tarjeta hoy:</span>
+                <span className="font-semibold">{fmt.money(ventas.tarjeta)}</span>
+              </div>
+              <div>
+                <span className="text-mute block">Esperado en Caja:</span>
+                <span className="font-semibold text-emerald-400">
+                  {fmt.money(Number(caja.apertura) + Number(ventas.efectivo))}
+                </span>
+              </div>
+              <button onClick={() => setShowCerrar(true)} disabled={saving} className="btn-secondary text-xs bg-rose-600 hover:bg-rose-500 text-white font-medium px-4 py-2 rounded-xl transition active:scale-95 shadow-sm">
+                Cerrar Caja
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -178,147 +181,57 @@ export default function CajaPage() {
           </div>
         </section>
         <section className="space-y-6">
-          <Block title="Comer aquí" items={locales} onCobrar={setCobrar} turnoAbierto={!!turno} />
-          <Block title="Para llevar" items={llevar} onCobrar={setCobrar} turnoAbierto={!!turno} />
+          <Block title="Comer aquí" items={locales} onCobrar={setCobrar} />
+          <Block title="Para llevar" items={llevar} onCobrar={setCobrar} />
         </section>
       </div>
-
-      {/* Modal Apertura de Caja */}
-      {showApertura && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-          <form onSubmit={handleAbrirTurno} className="card w-full max-w-sm p-5 space-y-4">
-            <h3 className="font-display text-lg flex items-center gap-2">
-              <DollarSign size={20} className="text-moss" /> Apertura de Caja
-            </h3>
-            <p className="text-xs text-mute">Ingrese el monto en efectivo con el que se inicia el turno en la caja registradora.</p>
-            <div>
-              <label className="block text-xs font-medium text-mute">Monto Inicial ($ Efectivo)</label>
-              <input
-                autoFocus
-                type="number"
-                step="0.01"
-                min="0"
-                required
-                className="input mt-1 text-base font-semibold"
-                placeholder="50.00"
-                value={montoInicialInput}
-                onChange={(e) => setMontoInicialInput(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-mute">Notas / Observaciones (Opcional)</label>
-              <input
-                type="text"
-                className="input mt-1 text-xs"
-                placeholder="Ej. Cambio de billetes de $20..."
-                value={notasTurnoInput}
-                onChange={(e) => setNotasTurnoInput(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button type="button" onClick={() => setShowApertura(false)} className="btn-ghost flex-1">Cancelar</button>
-              <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? "Guardando..." : "Abrir Turno"}</button>
-            </div>
-          </form>
-        </div>
+      {cobrar && (
+        <CobroModal pedido={cobrar} onClose={() => setCobrar(null)} onConfirm={confirmar} saving={saving} userRole={user?.rol} />
       )}
 
-      {/* Modal Cierre de Caja / Arqueo */}
-      {showCierre && turno && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-          <form onSubmit={handleCerrarTurno} className="card w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="font-display text-lg flex items-center gap-2 text-wine">
-              <Receipt size={20} /> Arqueo y Cierre de Caja
-            </h3>
-
-            <div className="rounded-xl bg-paper p-3 space-y-2 text-xs border border-line">
-              <div className="flex justify-between">
-                <span className="text-mute">Monto Inicial en Fondo:</span>
-                <span className="font-semibold">{fmt.money(turno.monto_inicial)}</span>
+      {showCerrar && caja && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="card w-full max-w-sm p-6 border border-white/10 bg-[#1c1b18] text-stone-100 shadow-2xl rounded-2xl">
+            <h3 className="font-display text-xl font-semibold mb-2">Cerrar Caja</h3>
+            <p className="text-sm text-stone-400 mb-4">
+              ¿Estás seguro de que deseas cerrar la caja del día? Esta acción marcará el cierre oficial.
+            </p>
+            
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 mb-6 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-stone-400">Total Efectivo Esperado:</span>
+                <span className="font-semibold text-emerald-400">{fmt.money(Number(caja.apertura) + Number(ventas.efectivo))}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-mute">(+) Ventas en Efectivo:</span>
-                <span className="font-semibold text-moss">{fmt.money(turno.total_ventas_efectivo)}</span>
-              </div>
-              <div className="flex justify-between border-t border-line pt-2 font-bold text-sm">
-                <span>(=) Efectivo Esperado en Caja:</span>
-                <span className="text-ink">{fmt.money(turno.efectivo_esperado)}</span>
-              </div>
-              <div className="flex justify-between text-mute pt-1 border-t border-dashed border-line">
-                <span>Ventas en Tarjeta (Informativo):</span>
-                <span className="font-semibold text-ink">{fmt.money(turno.total_ventas_tarjeta)}</span>
+              <div className="flex justify-between text-sm">
+                <span className="text-stone-400">Total Tarjeta:</span>
+                <span className="font-semibold text-emerald-400">{fmt.money(Number(ventas.tarjeta))}</span>
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-ink">Conteo Físico de Efectivo Real en Caja</label>
-              <input
-                autoFocus
-                type="number"
-                step="0.01"
-                min="0"
-                required
-                className="input mt-1 text-lg font-bold"
-                placeholder="0.00"
-                value={efectivoRealInput}
-                onChange={(e) => setEfectivoRealInput(e.target.value)}
-              />
-            </div>
-
-            {efectivoRealInput !== "" && !isNaN(parseFloat(efectivoRealInput)) && (
-              <div className={clsx(
-                "p-3 rounded-xl border text-xs flex items-center justify-between",
-                (parseFloat(efectivoRealInput) - turno.efectivo_esperado) === 0
-                  ? "bg-moss/10 border-moss/30 text-moss"
-                  : (parseFloat(efectivoRealInput) - turno.efectivo_esperado) > 0
-                  ? "bg-blue-500/10 border-blue-500/30 text-blue-700"
-                  : "bg-wine/10 border-wine/30 text-wine"
-              )}>
-                <div className="flex items-center gap-2">
-                  {(parseFloat(efectivoRealInput) - turno.efectivo_esperado) === 0 ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-                  <span className="font-medium">
-                    {(parseFloat(efectivoRealInput) - turno.efectivo_esperado) === 0
-                      ? "Caja cuadrada exactamente"
-                      : (parseFloat(efectivoRealInput) - turno.efectivo_esperado) > 0
-                      ? "Sobrante de dinero"
-                      : "Faltante de dinero"}
-                  </span>
-                </div>
-                <span className="font-bold text-sm">
-                  {fmt.money(Math.abs(parseFloat(efectivoRealInput) - turno.efectivo_esperado))}
-                </span>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-medium text-mute">Notas de Arqueo / Cierre</label>
-              <input
-                type="text"
-                className="input mt-1 text-xs"
-                placeholder="Observaciones de cierre..."
-                value={notasTurnoInput}
-                onChange={(e) => setNotasTurnoInput(e.target.value)}
-              />
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button type="button" onClick={() => setShowCierre(false)} className="btn-ghost flex-1">Cancelar</button>
-              <button type="submit" disabled={saving} className="btn-primary bg-wine flex-1">
-                {saving ? "Cerrando..." : "Confirmar Cierre"}
+            <div className="flex gap-3">
+              <button 
+                disabled={saving} 
+                onClick={() => setShowCerrar(false)} 
+                className="px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-sm font-semibold rounded-xl flex-1 transition"
+              >
+                Cancelar
+              </button>
+              <button 
+                disabled={saving} 
+                onClick={cerrarCaja} 
+                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold rounded-xl flex-1 transition active:scale-95 shadow-sm"
+              >
+                {saving ? "Cerrando..." : "Sí, Cerrar Caja"}
               </button>
             </div>
-          </form>
+          </div>
         </div>
-      )}
-
-      {cobrar && (
-        <CobroModal pedido={cobrar} onClose={() => setCobrar(null)} onConfirm={confirmar} saving={saving} />
       )}
     </Shell>
   );
 }
 
-function Block({ title, items, onCobrar, turnoAbierto }) {
+function Block({ title, items, onCobrar }) {
   return (
     <div>
       <h2 className="mb-3 text-sm font-medium text-mute">{title}</h2>
@@ -326,8 +239,7 @@ function Block({ title, items, onCobrar, turnoAbierto }) {
         {items.length === 0 && <p className="text-sm text-mute">Sin pedidos abiertos.</p>}
         {items.map((p) => {
           const ok = ready(p);
-          const activeDets = (p.detalles || []).filter((d) => d.estado_cocina !== "cancelado");
-          const cocina = activeDets.filter((d) => d.estado_cocina !== "entregado").length;
+          const cocina = (p.detalles || []).filter((d) => !["entregado", "no_entregado", "anulado", "cancelado"].includes(d.estado_cocina)).length;
           return (
             <div key={p.id} className="card flex items-center justify-between p-4">
               <div>
@@ -338,8 +250,8 @@ function Block({ title, items, onCobrar, turnoAbierto }) {
                   {p.nombre_control} · {cocina ? `${cocina} en cocina` : "Listo para cobro"} · {fmt.money(p.total)}
                 </p>
               </div>
-              <button disabled={!ok || !turnoAbierto} onClick={() => onCobrar(p)} className="btn-primary text-xs">
-                {!turnoAbierto ? "Abra caja primero" : "Cobrar"}
+              <button onClick={() => onCobrar(p)} className="btn-primary text-xs">
+                Cobrar
               </button>
             </div>
           );

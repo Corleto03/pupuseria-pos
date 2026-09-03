@@ -9,6 +9,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const estado = searchParams.get("estado") || "pendiente";
   const tipo = searchParams.get("tipo");
+  const fecha = searchParams.get("fecha") || (estado !== "pendiente" ? "hoy" : "todos");
 
   const { rows } = await withUser(user, (c) => {
     const params = [estado];
@@ -17,8 +18,15 @@ export async function GET(request) {
       params.push(tipo);
       where += ` AND p.tipo_pedido = $${params.length}`;
     }
+    if (fecha === "hoy") {
+      where += " AND (p.fecha AT TIME ZONE 'America/El_Salvador')::date = (NOW() AT TIME ZONE 'America/El_Salvador')::date";
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      params.push(fecha);
+      where += ` AND (p.fecha AT TIME ZONE 'America/El_Salvador')::date = $${params.length}::date`;
+    }
+    const orderDir = estado === "pendiente" ? "ASC" : "DESC";
     return c.query(
-      `${PEDIDO_SELECT} WHERE ${where} GROUP BY p.id, m.numero, u.nombre ORDER BY p.fecha ASC`,
+      `${PEDIDO_SELECT} WHERE ${where} GROUP BY p.id, m.numero, u.nombre ORDER BY p.fecha ${orderDir}`,
       params
     );
   });

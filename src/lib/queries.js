@@ -1,5 +1,14 @@
 export const PEDIDO_SELECT = `
-  SELECT p.*,
+  SELECT p.id, p.tipo_pedido, p.nombre_control, p.id_mesa, p.id_usuario, p.estado_pago, p.fecha, p.metodo_pago, p.pago_efectivo, p.pago_tarjeta, p.monto_recibido, p.vuelto, p.fecha_pago, p.notas,
+         COALESCE(
+           (
+             SELECT SUM(d2.precio_unitario * d2.cantidad)
+             FROM detalle_pedidos d2
+             WHERE d2.id_pedido = p.id AND d2.estado_cocina NOT IN ('no_entregado', 'anulado', 'cancelado')
+           ),
+           p.total,
+           0
+         ) AS total,
          m.numero AS mesa_numero,
          u.nombre AS mesero_nombre,
          COALESCE(

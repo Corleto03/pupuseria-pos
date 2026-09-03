@@ -3,13 +3,14 @@
 import { useEffect, useState, useRef } from "react";
 import Shell from "@/components/Shell";
 import { useToast } from "@/components/Toast";
-import { Image as ImageIcon, Upload } from "lucide-react";
+import { Image as ImageIcon, Upload, Trash2 } from "lucide-react";
 
 export default function PersonalizacionPage() {
   const [nombre, setNombre] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [removeLogo, setRemoveLogo] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef(null);
@@ -23,6 +24,7 @@ export default function PersonalizacionPage() {
       const data = await res.json();
       setNombre(data.nombre_restaurante || "");
       setLogoUrl(data.logo_url || "");
+      setRemoveLogo(false);
     } catch (err) {
       toast(err.message, "err");
     } finally {
@@ -49,6 +51,7 @@ export default function PersonalizacionPage() {
     }
 
     setSelectedFile(file);
+    setRemoveLogo(false);
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
   };
@@ -73,8 +76,15 @@ export default function PersonalizacionPage() {
     }
 
     setSelectedFile(file);
+    setRemoveLogo(false);
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
+  };
+
+  const handleQuitarLogo = () => {
+    setSelectedFile(null);
+    setPreviewUrl("");
+    setRemoveLogo(true);
   };
 
   const handleSubmit = async (e) => {
@@ -88,7 +98,9 @@ export default function PersonalizacionPage() {
     try {
       const formData = new FormData();
       formData.append("nombre_restaurante", nombre.trim());
-      if (selectedFile) {
+      if (removeLogo) {
+        formData.append("eliminar_logo", "true");
+      } else if (selectedFile) {
         formData.append("logo", selectedFile);
       }
 
@@ -104,12 +116,11 @@ export default function PersonalizacionPage() {
 
       toast("Ajustes de personalización guardados");
       
-      // Clear selected file and reload to get dynamic cache busted logo url
       setSelectedFile(null);
       setPreviewUrl("");
+      setRemoveLogo(false);
       await load();
       
-      // Force reload the page after a short delay to refresh the Shell header/sidebar
       setTimeout(() => {
         window.location.reload();
       }, 1000);
@@ -157,18 +168,30 @@ export default function PersonalizacionPage() {
               
               <div className="grid gap-6 md:grid-cols-[160px_1fr] items-center">
                 {/* Logo Preview */}
-                <div className="flex flex-col items-center justify-center h-40 w-40 rounded-2xl border border-line bg-stone-50 overflow-hidden relative group">
-                  {previewUrl || logoUrl ? (
-                    <img
-                      src={previewUrl || logoUrl}
-                      alt="Vista previa del logo"
-                      className="max-h-full max-w-full p-2 object-contain"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-mute">
-                      <ImageIcon size={32} strokeWidth={1.5} />
-                      <span className="text-[10px] mt-1">Sin logo</span>
-                    </div>
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex flex-col items-center justify-center h-40 w-40 rounded-2xl border border-line bg-stone-50 overflow-hidden relative group">
+                    {(!removeLogo && (previewUrl || logoUrl)) ? (
+                      <img
+                        src={previewUrl || logoUrl}
+                        alt="Vista previa del logo"
+                        className="max-h-full max-w-full p-2 object-contain"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-mute">
+                        <ImageIcon size={32} strokeWidth={1.5} />
+                        <span className="text-[10px] mt-1">Sin logo</span>
+                      </div>
+                    )}
+                  </div>
+                  {(!removeLogo && (previewUrl || logoUrl)) && (
+                    <button
+                      type="button"
+                      onClick={handleQuitarLogo}
+                      className="text-xs text-wine hover:underline flex items-center gap-1 font-semibold"
+                    >
+                      <Trash2 size={13} />
+                      Quitar logo
+                    </button>
                   )}
                 </div>
 

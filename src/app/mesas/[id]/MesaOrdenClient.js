@@ -7,12 +7,14 @@ import OrderTicket from "@/components/OrderTicket";
 import CobroModal from "@/components/CobroModal";
 import { useRealtime } from "@/hooks/useRealtime";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/hooks/useAuth";
 import { printTicket } from "@/lib/printTicket";
 
 export default function MesaOrdenPage() {
   const search = useSearchParams();
   const router = useRouter();
   const toast = useToast();
+  const { user } = useAuth();
   const pedidoId = search.get("pedido");
   const [pedido, setPedido] = useState(null);
   const [productos, setProductos] = useState([]);
@@ -62,7 +64,7 @@ export default function MesaOrdenPage() {
     >
       {pedido && <OrderTicket pedido={pedido} productos={productos} onChanged={load} toast={toast} />}
       {cobro && pedido && (
-        <CobroModal pedido={pedido} onClose={() => setCobro(false)} onConfirm={cobrar} saving={saving} />
+        <CobroModal pedido={pedido} onClose={() => setCobro(false)} onConfirm={cobrar} saving={saving} userRole={user?.rol} />
       )}
     </Shell>
   );

@@ -8,11 +8,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 
 function loadEnv() {
-  const envPath = path.join(root, ".env.local");
-  if (!fs.existsSync(envPath)) return;
-  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
-    const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
+  // Intenta .env.local (desarrollo) y luego .env (producción en Docker)
+  for (const fileName of [".env.local", ".env"]) {
+    const envPath = path.join(root, fileName);
+    if (!fs.existsSync(envPath)) continue;
+    for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+      const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
+    }
+    break; // Solo lee el primero que encuentre
   }
 }
 
@@ -93,17 +97,6 @@ async function main() {
   dbUrl.password = adminCredentials.password;
   const db = new pg.Client({ connectionString: dbUrl.toString() });
   await db.connect();
-  
-  // Fix any invalid states before applying constraint
-  try {
-    await db.query(`ALTER TABLE public.detalle_pedidos DISABLE TRIGGER ALL`);
-    await db.query(`ALTER TABLE public.detalle_pedidos DROP CONSTRAINT IF EXISTS detalle_pedidos_estado_cocina_check`);
-    await db.query(`UPDATE public.detalle_pedidos SET estado_cocina = 'cancelado' WHERE estado_cocina NOT IN ('borrador', 'pendiente', 'preparacion', 'entregado', 'cancelado')`);
-    await db.query(`ALTER TABLE public.detalle_pedidos ENABLE TRIGGER ALL`);
-  } catch (err) {
-    console.log("Error fixing states:", err.message);
-  }
-  
   await db.query(sql);
   const hasSupport = await bootstrapUser(db, "BOOTSTRAP_SUPERADMIN", "superadmin");
   const hasAdmin = await bootstrapUser(db, "BOOTSTRAP_ADMIN", "admin");

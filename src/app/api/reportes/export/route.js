@@ -1,22 +1,58 @@
 import { requireUser } from "@/lib/api";
 import { withUser } from "@/lib/db";
 
-function rango(periodo, fechaParam) {
+function getLocalYMD(d = new Date(), tz = "America/El_Salvador") {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function rango(periodo, fechaParam, tz = "America/El_Salvador") {
   if (fechaParam && /^\d{4}-\d{2}-\d{2}$/.test(fechaParam)) {
     const start = new Date(`${fechaParam}T00:00:00-06:00`);
     const end = new Date(`${fechaParam}T23:59:59.999-06:00`);
     return { start, end };
   }
-  const end = new Date();
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+
+  const todayYMD = getLocalYMD(new Date(), tz);
+
   if (periodo === "semana") {
-    const day = start.getDay() || 7;
-    start.setDate(start.getDate() - day + 1);
+    const [y, m, d] = todayYMD.split("-").map(Number);
+    const localDate = new Date(Date.UTC(y, m - 1, d));
+    const dayOfWeek = localDate.getUTCDay() || 7; // 1 = lunes, 7 = domingo
+    const monday = new Date(localDate);
+    monday.setUTCDate(localDate.getUTCDate() - dayOfWeek + 1);
+    const sunday = new Date(monday);
+    sunday.setUTCDate(monday.getUTCDate() + 6);
+
+    const monYMD = monday.toISOString().slice(0, 10);
+    const sunYMD = sunday.toISOString().slice(0, 10);
+    return {
+      start: new Date(`${monYMD}T00:00:00-06:00`),
+      end: new Date(`${sunYMD}T23:59:59.999-06:00`),
+    };
   } else if (periodo === "mes") {
-    start.setDate(1);
+    const [y, m] = todayYMD.split("-");
+    const nextMonth = Number(m) === 12 ? new Date(Number(y) + 1, 0, 1) : new Date(Number(y), Number(m), 1);
+    const lastDayOfMonth = new Date(nextMonth.getTime() - 1);
+    const lastYMD = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(lastDayOfMonth);
+    return {
+      start: new Date(`${y}-${m}-01T00:00:00-06:00`),
+      end: new Date(`${lastYMD}T23:59:59.999-06:00`),
+    };
   }
-  end.setHours(23, 59, 59, 999);
+
+  // periodo === 'dia' (Hoy)
+  const start = new Date(`${todayYMD}T00:00:00-06:00`);
+  const end = new Date(`${todayYMD}T23:59:59.999-06:00`);
   return { start, end };
 }
 

@@ -11,6 +11,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - TZ=America/El_Salvador
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_ADMIN_URL=${DATABASE_ADMIN_URL}
       - JWT_SECRET=${JWT_SECRET}
@@ -37,6 +38,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-pupuseria}
+      TZ: America/El_Salvador
     deploy:
       resources:
         limits:

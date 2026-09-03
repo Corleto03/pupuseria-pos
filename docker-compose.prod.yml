@@ -21,7 +21,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024M
+          cpus: '1.0'
+          memory: 1536M
     depends_on:
       db:
         condition: service_healthy
@@ -39,7 +40,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024M
+          cpus: '0.5'
+          memory: 1536M
     volumes:
       - pupuseria_data:/var/lib/postgresql/data
     healthcheck:

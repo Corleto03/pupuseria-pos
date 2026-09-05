@@ -132,6 +132,10 @@ export async function PATCH(request, { params }) {
   }
 }
 
+export async function POST(request, context) {
+  return PATCH(request, context);
+}
+
 export async function DELETE(req, { params }) {
   const { user, error } = await requireUser(["superadmin", "admin", "gerente", "mesero", "cajero"]);
   if (error) return error;

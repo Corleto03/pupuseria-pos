@@ -105,7 +105,7 @@ export default function PersonalizacionPage() {
       }
 
       const res = await fetch("/api/ajustes", {
-        method: "PATCH",
+        method: "POST",
         body: formData,
       });
 

@@ -167,3 +167,7 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ error: pgError(err) }, { status: 409 });
   }
 }
+
+export async function POST(request, context) {
+  return PATCH(request, context);
+}

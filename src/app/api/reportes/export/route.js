@@ -73,7 +73,7 @@ export async function GET(request) {
   const fecha = searchParams.get("fecha") || "";
   const { start, end } = rango(periodo, fecha);
 
-  const [resRows, resAjustes] = await Promise.all([
+  const [resRows, resAjustes, resCajas] = await Promise.all([
     withUser(user, (c) =>
       c.query(
         `SELECT p.id AS pedido_id, COALESCE(p.fecha_pago, p.fecha) AS fecha, 
@@ -102,7 +102,30 @@ export async function GET(request) {
       )
     ),
     withUser(user, (c) => c.query("SELECT clave, valor FROM public.ajustes").catch(() => ({ rows: [] }))),
+    withUser(user, (c) =>
+      c.query(
+        `SELECT c.id,
+                to_char(c.fecha, 'YYYY-MM-DD') AS fecha,
+                c.apertura::float AS apertura,
+                c.cierre::float AS cierre,
+                c.efectivo::float AS efectivo,
+                c.tarjeta::float AS tarjeta,
+                c.created_at,
+                (c.apertura + c.efectivo)::float AS esperado,
+                CASE 
+                  WHEN c.cierre IS NULL THEN NULL
+                  ELSE (c.cierre - (c.apertura + c.efectivo))::float
+                END AS diferencia
+         FROM public.caja c
+         WHERE (c.fecha BETWEEN DATE($1) AND DATE($2)) 
+            OR (c.created_at BETWEEN $1 AND $2)
+         ORDER BY c.created_at DESC`,
+        [start.toISOString(), end.toISOString()]
+      ).catch(() => ({ rows: [] }))
+    ),
   ]);
+
+  const cajaRows = resCajas.rows || [];
 
   const rows = resRows.rows;
   const configMap = {};
@@ -456,6 +479,57 @@ export async function GET(request) {
             ${grandTotal.toFixed(2)}
           </td>
         </tr>
+      </tbody>
+    </table>
+
+    <br/>
+
+    <!-- 3. HISTORIAL Y AUDITORÍA DE ARQUEOS DE CAJA -->
+    <h3 style="font-family: 'Segoe UI', sans-serif; font-size: 13px; color: #1c1b18; margin-bottom: 4px;">
+      3. ARQUEO Y CIERRES DE CAJA (CUADRE DE EFECTIVO)
+    </h3>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 140px;">Fecha / Registro</th>
+          <th style="width: 110px; text-align: right;">Fondo Inicial</th>
+          <th style="width: 110px; text-align: right;">Efectivo Ventas</th>
+          <th style="width: 110px; text-align: right;">Efectivo Esperado</th>
+          <th style="width: 110px; text-align: right;">Contado (Cierre)</th>
+          <th style="width: 140px; text-align: center;">Resultado Cuadre</th>
+          <th style="width: 110px; text-align: right;">Diferencia ($)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${cajaRows.map((c) => {
+          const diff = c.diferencia;
+          let estadoText = "Turno en curso";
+          let estadoColor = "color: #6b7280;";
+          if (c.cierre !== null) {
+            if (Math.abs(diff || 0) < 0.01) {
+              estadoText = "Cuadró Exacto";
+              estadoColor = "color: #16a34a; font-weight: bold;";
+            } else if (diff < 0) {
+              estadoText = "FALTANTE";
+              estadoColor = "color: #dc2626; font-weight: bold;";
+            } else {
+              estadoText = "SOBRANTE";
+              estadoColor = "color: #d97706; font-weight: bold;";
+            }
+          }
+          return `
+            <tr>
+              <td>${c.fecha}</td>
+              <td class="currency">${c.apertura.toFixed(2)}</td>
+              <td class="currency">${c.efectivo.toFixed(2)}</td>
+              <td class="currency" style="font-weight: bold;">${c.esperado.toFixed(2)}</td>
+              <td class="currency" style="font-weight: bold;">${c.cierre !== null ? c.cierre.toFixed(2) : "En curso"}</td>
+              <td class="text-center" style="${estadoColor}">${estadoText}</td>
+              <td class="currency" style="${estadoColor}">${diff !== null ? diff.toFixed(2) : "0.00"}</td>
+            </tr>
+          `;
+        }).join("")}
+        ${!cajaRows.length ? '<tr><td colspan="7" class="text-center" style="color: #9ca3af; padding: 12px;">Sin cierres de caja registrados en este periodo.</td></tr>' : ''}
       </tbody>
     </table>
   </body>

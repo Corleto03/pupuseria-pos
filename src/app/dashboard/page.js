@@ -294,6 +294,83 @@ export default function DashboardPage() {
           )}
         </div>
       </section>
+
+      {/* Auditoría de Cierres y Cuadre de Caja */}
+      <section className="card mt-6 border border-line bg-white p-5 md:p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-ink">Historial de Arqueos y Cierres de Caja</h2>
+            <p className="mt-1 text-xs text-mute">Registro de dinero contado al cerrar turno vs esperado por ventas de efectivo</p>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-medium">
+              Cuadradas: {data?.resumen_cajas?.cuadradas || 0}
+            </span>
+            <span className="px-2.5 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-200 font-medium">
+              Faltantes: -{fmt.money(data?.resumen_cajas?.faltantes || 0)}
+            </span>
+            <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-medium">
+              Sobrantes: +{fmt.money(data?.resumen_cajas?.sobrantes || 0)}
+            </span>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[750px] text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-xs font-semibold text-mute">
+                <th className="pb-3">Fecha / Registro</th>
+                <th className="pb-3 text-right">Monto Inicial</th>
+                <th className="pb-3 text-right">Efectivo Ventas</th>
+                <th className="pb-3 text-right">Esperado</th>
+                <th className="pb-3 text-right">Contado (Cierre)</th>
+                <th className="pb-3 text-center">Estado de Cuadre</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/50">
+              {(data?.cajas || []).map((c) => {
+                const diff = c.diferencia;
+                return (
+                  <tr key={c.id} className="hover:bg-stone-50/60 transition-colors">
+                    <td className="py-3 text-xs">
+                      <span className="font-semibold text-ink block">{fmt.date(c.created_at)}</span>
+                      <span className="text-[11px] text-mute">Fecha caja: {c.fecha}</span>
+                    </td>
+                    <td className="py-3 text-right font-mono text-xs text-mute">{fmt.money(c.apertura)}</td>
+                    <td className="py-3 text-right font-mono text-xs text-ink font-medium">{fmt.money(c.efectivo)}</td>
+                    <td className="py-3 text-right font-mono text-xs text-emerald-700 font-semibold">{fmt.money(c.esperado)}</td>
+                    <td className="py-3 text-right font-mono text-xs font-bold">
+                      {c.cierre !== null ? fmt.money(c.cierre) : <span className="text-mute font-normal">--</span>}
+                    </td>
+                    <td className="py-3 text-center">
+                      {c.cierre === null ? (
+                        <span className="rounded-full bg-stone-100 border border-stone-300 text-stone-700 px-2.5 py-0.5 text-xs font-medium">
+                          Turno en curso
+                        </span>
+                      ) : Math.abs(diff || 0) < 0.01 ? (
+                        <span className="rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 px-2.5 py-0.5 text-xs font-bold">
+                          Cuadró Exacto ($0.00)
+                        </span>
+                      ) : diff < 0 ? (
+                        <span className="rounded-full bg-rose-50 border border-rose-300 text-rose-800 px-2.5 py-0.5 text-xs font-bold">
+                          Faltante: -{fmt.money(Math.abs(diff))}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-amber-50 border border-amber-300 text-amber-900 px-2.5 py-0.5 text-xs font-bold">
+                          Sobrante: +{fmt.money(diff)}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {!data?.cajas?.length && (
+            <p className="py-10 text-center text-sm text-mute">Sin registros de cierre de caja en este periodo.</p>
+          )}
+        </div>
+      </section>
     </Shell>
   );
 }

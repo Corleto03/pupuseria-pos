@@ -152,10 +152,39 @@ export async function GET(request) {
            OR (a.accion = 'insert' AND a.detalle->'despues'->>'estado_cocina' IN ('no_entregado', 'anulado', 'cancelado'))
            OR (a.accion = 'update' AND a.detalle->'despues'->>'estado_cocina' IN ('no_entregado', 'anulado', 'cancelado') AND COALESCE(a.detalle->'antes'->>'estado_cocina', '') NOT IN ('no_entregado', 'anulado', 'cancelado'))
          )
-       ORDER BY a.created_at DESC
-       LIMIT 50`,
+         ORDER BY a.created_at DESC
+         LIMIT 50`,
       [start.toISOString(), end.toISOString()]
     );
+    const cajas = await c.query(
+      `SELECT c.id,
+              to_char(c.fecha, 'YYYY-MM-DD') AS fecha,
+              c.apertura::float AS apertura,
+              c.cierre::float AS cierre,
+              c.efectivo::float AS efectivo,
+              c.tarjeta::float AS tarjeta,
+              c.created_at,
+              (c.apertura + c.efectivo)::float AS esperado,
+              CASE 
+                WHEN c.cierre IS NULL THEN NULL
+                ELSE (c.cierre - (c.apertura + c.efectivo))::float
+              END AS diferencia
+       FROM public.caja c
+       WHERE (c.fecha BETWEEN DATE($1) AND DATE($2)) 
+          OR (c.created_at BETWEEN $1 AND $2)
+       ORDER BY c.created_at DESC`,
+      [start.toISOString(), end.toISOString()]
+    );
+
+    const cerradas = cajas.rows.filter((r) => r.cierre !== null);
+    const cuadradasCount = cerradas.filter((r) => Math.abs(r.diferencia || 0) < 0.01).length;
+    const faltantesTotal = cerradas
+      .filter((r) => (r.diferencia || 0) < -0.01)
+      .reduce((sum, r) => sum + Math.abs(r.diferencia), 0);
+    const sobrantesTotal = cerradas
+      .filter((r) => (r.diferencia || 0) > 0.01)
+      .reduce((sum, r) => sum + r.diferencia, 0);
+
     return {
       total: ventas.rows[0].total,
       ordenes: ventas.rows[0].ordenes,
@@ -165,6 +194,13 @@ export async function GET(request) {
       top: top.rows,
       serie: serie.rows,
       auditoria: auditoria.rows,
+      cajas: cajas.rows,
+      resumen_cajas: {
+        total_cierres: cerradas.length,
+        cuadradas: cuadradasCount,
+        faltantes: faltantesTotal,
+        sobrantes: sobrantesTotal,
+      },
     };
   });
 

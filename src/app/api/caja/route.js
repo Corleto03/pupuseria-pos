@@ -87,7 +87,10 @@ export async function POST(request) {
         const tj = Number(ventasRes.rows[0].total_tarjeta);
 
         const apertura = Number(cajaRes.rows[0].apertura);
-        const totalCierre = apertura + ef;
+        const totalEsperado = apertura + ef;
+        const totalCierre = body.efectivo_real !== undefined && body.efectivo_real !== null && body.efectivo_real !== ""
+          ? Number(body.efectivo_real)
+          : totalEsperado;
 
         const res = await c.query(
           `UPDATE public.caja

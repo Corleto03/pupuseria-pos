@@ -21,6 +21,7 @@ export default function CajaPage() {
   const [caja, setCaja] = useState(null);
   const [ventas, setVentas] = useState({ efectivo: 0, tarjeta: 0 });
   const [montoApertura, setMontoApertura] = useState("");
+  const [montoContado, setMontoContado] = useState("");
   const [cobrar, setCobrar] = useState(null);
   const [showCerrar, setShowCerrar] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -70,7 +71,10 @@ export default function CajaPage() {
     const res = await fetch("/api/caja", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accion: "cerrar" }),
+      body: JSON.stringify({
+        accion: "cerrar",
+        efectivo_real: montoContado !== "" ? Number(montoContado) : undefined,
+      }),
     });
     setSaving(false);
     if (!res.ok) {
@@ -79,6 +83,7 @@ export default function CajaPage() {
     }
     toast("Caja cerrada correctamente");
     setShowCerrar(false);
+    setMontoContado("");
     load();
   }
 
@@ -194,13 +199,15 @@ export default function CajaPage() {
           <div className="card w-full max-w-sm p-6 border border-white/10 bg-[#1c1b18] text-stone-100 shadow-2xl rounded-2xl">
             <h3 className="font-display text-xl font-semibold mb-2">Cerrar Caja</h3>
             <p className="text-sm text-stone-400 mb-4">
-              ¿Estás seguro de que deseas cerrar la caja del día? Esta acción marcará el cierre oficial.
+              Ingresa el dinero físico contado en el cajón para verificar si la caja cuadra exacto o presenta diferencias.
             </p>
             
-            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 mb-6 space-y-2">
+            <div className="bg-stone-900/60 p-4 rounded-xl border border-white/5 mb-4 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-stone-400">Total Efectivo Esperado:</span>
-                <span className="font-semibold text-emerald-400">{fmt.money(Number(caja.apertura) + Number(ventas.efectivo))}</span>
+                <span className="font-semibold text-emerald-400">
+                  {fmt.money(Number(caja.apertura) + Number(ventas.efectivo))}
+                </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-stone-400">Total Tarjeta:</span>
@@ -208,10 +215,34 @@ export default function CajaPage() {
               </div>
             </div>
 
+            <div className="mb-6 space-y-2">
+              <label className="block text-xs font-medium text-stone-300">
+                Dinero Físico en Caja ($):
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                placeholder={`Ej: ${(Number(caja.apertura) + Number(ventas.efectivo)).toFixed(2)}`}
+                value={montoContado}
+                onChange={(e) => setMontoContado(e.target.value)}
+                className="input text-sm w-full font-mono bg-stone-900 text-white border-white/10"
+              />
+              {montoContado !== "" && (() => {
+                const diff = Number(montoContado) - (Number(caja.apertura) + Number(ventas.efectivo));
+                if (Math.abs(diff) < 0.01) {
+                  return <p className="text-xs text-emerald-400 font-semibold text-center">Caja Cuadrada Exacta</p>;
+                } else if (diff < 0) {
+                  return <p className="text-xs text-rose-400 font-semibold text-center">Faltante: {fmt.money(Math.abs(diff))}</p>;
+                } else {
+                  return <p className="text-xs text-amber-400 font-semibold text-center">Sobrante: {fmt.money(diff)}</p>;
+                }
+              })()}
+            </div>
+
             <div className="flex gap-3">
               <button 
                 disabled={saving} 
-                onClick={() => setShowCerrar(false)} 
+                onClick={() => { setShowCerrar(false); setMontoContado(""); }} 
                 className="px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-sm font-semibold rounded-xl flex-1 transition"
               >
                 Cancelar

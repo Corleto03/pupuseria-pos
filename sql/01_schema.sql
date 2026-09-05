@@ -444,21 +444,36 @@ RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE
   v_id UUID;
   v_pedido UUID;
+  v_det_estado TEXT := NULL;
+  v_pago_estado TEXT := NULL;
+  v_mesa INT := NULL;
+  v_control TEXT := NULL;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     v_id := OLD.id;
     IF TG_TABLE_NAME = 'detalle_pedidos' THEN
       v_pedido := OLD.id_pedido;
+      v_det_estado := OLD.estado_cocina;
     ELSIF TG_TABLE_NAME = 'pedidos' THEN
       v_pedido := OLD.id;
+      v_pago_estado := OLD.estado_pago;
     END IF;
   ELSE
     v_id := NEW.id;
     IF TG_TABLE_NAME = 'detalle_pedidos' THEN
       v_pedido := NEW.id_pedido;
+      v_det_estado := NEW.estado_cocina;
     ELSIF TG_TABLE_NAME = 'pedidos' THEN
       v_pedido := NEW.id;
+      v_pago_estado := NEW.estado_pago;
     END IF;
+  END IF;
+
+  IF v_pedido IS NOT NULL THEN
+    SELECT p.nombre_control, m.numero INTO v_control, v_mesa
+    FROM public.pedidos p
+    LEFT JOIN public.mesas m ON m.id = p.id_mesa
+    WHERE p.id = v_pedido;
   END IF;
 
   PERFORM pg_notify(
@@ -468,6 +483,10 @@ BEGIN
       'op', TG_OP,
       'id', v_id,
       'id_pedido', v_pedido,
+      'estado_cocina', v_det_estado,
+      'estado_pago', v_pago_estado,
+      'mesa_numero', v_mesa,
+      'nombre_control', v_control,
       'ts', EXTRACT(EPOCH FROM NOW())
     )::TEXT
   );

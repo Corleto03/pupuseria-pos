@@ -5,6 +5,9 @@ import Shell from "@/components/Shell";
 import { fmt } from "@/lib/formatters";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Download, TrendingUp, Receipt, Store, ShoppingBag, ShieldCheck, Calendar, X } from "lucide-react";
+import { useRealtime } from "@/hooks/useRealtime";
+import { useToast } from "@/components/Toast";
+import { playNotificationSound } from "@/lib/sound";
 
 const PERIODS = [
   { id: "dia", label: "Hoy" },
@@ -16,6 +19,7 @@ export default function DashboardPage() {
   const [periodo, setPeriodo] = useState("dia");
   const [fecha, setFecha] = useState("");
   const [data, setData] = useState(null);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     const query = fecha ? `fecha=${fecha}` : `periodo=${periodo}`;
@@ -26,6 +30,20 @@ export default function DashboardPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleRealtime = useCallback((ev) => {
+    load();
+    if (ev?.table === "pedidos" && ev?.estado_pago === "pagada") {
+      playNotificationSound("cobro");
+      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Pedido");
+      toast(`Cobro registrado en Caja (${target})`);
+    } else if (ev?.table === "detalle_pedidos" && ev?.estado_cocina === "pendiente") {
+      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Salón");
+      toast(`Nueva orden enviada a cocina (${target})`);
+    }
+  }, [load, toast]);
+
+  useRealtime(handleRealtime);
 
   return (
     <Shell

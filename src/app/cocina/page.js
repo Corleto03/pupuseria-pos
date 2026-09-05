@@ -7,6 +7,7 @@ import { useToast } from "@/components/Toast";
 import { useAuth } from "@/hooks/useAuth";
 import { ESTADO_COCINA, fmt } from "@/lib/formatters";
 import clsx from "clsx";
+import { playNotificationSound } from "@/lib/sound";
 
 function groupByEstado(detalles) {
   const map = {
@@ -49,7 +50,17 @@ export default function CocinaPage() {
   useEffect(() => {
     load();
   }, [load]);
-  useRealtime(load);
+
+  const handleRealtime = useCallback((ev) => {
+    load();
+    if (ev?.table === "detalle_pedidos" && ev?.estado_cocina === "pendiente") {
+      playNotificationSound("cocina");
+      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Cocina");
+      toast(`Nueva orden recibida en Cocina (${target})`);
+    }
+  }, [load, toast]);
+
+  useRealtime(handleRealtime);
 
   async function avanzar(pedidoId, d) {
     const next = ESTADO_COCINA[d.estado_cocina]?.next;

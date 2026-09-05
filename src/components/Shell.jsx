@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useRealtime } from "@/hooks/useRealtime";
+import { useToast } from "@/components/Toast";
+import { playNotificationSound } from "@/lib/sound";
 import {
   LayoutGrid,
   UtensilsCrossed,
@@ -39,6 +42,8 @@ export default function Shell({ title, actions, children, dark = false }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [ajustes, setAjustes] = useState({ nombre_restaurante: "OceanSis", logo_url: "" });
 
+  const toast = useToast();
+
   useEffect(() => {
     fetch("/api/ajustes")
       .then((res) => res.json())
@@ -54,6 +59,29 @@ export default function Shell({ title, actions, children, dark = false }) {
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [pathname]);
+
+  const handleGlobalRealtime = useCallback((ev) => {
+    if (!user || !toast) return;
+    const target = ev?.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev?.nombre_control || "Salón");
+    const isBoss = ["superadmin", "admin", "gerente"].includes(user.rol);
+
+    if (ev?.table === "pedidos" && ev?.op === "INSERT" && ev?.estado_pago === "pendiente") {
+      if (isBoss) {
+        toast(`Mesa abierta: ${target}`);
+      }
+    } else if (ev?.table === "detalle_pedidos" && ev?.estado_cocina === "pendiente" && ev?.op === "INSERT") {
+      if (isBoss) {
+        toast(`Comanda enviada a cocina: ${target}`);
+      }
+    } else if (ev?.table === "pedidos" && ev?.estado_pago === "pagada") {
+      if (isBoss && pathname !== "/caja" && pathname !== "/dashboard") {
+        playNotificationSound("cobro");
+        toast(`Cobro registrado en Caja (${target})`);
+      }
+    }
+  }, [user, toast, pathname]);
+
+  useRealtime(handleGlobalRealtime);
 
   const SidebarContent = () => (
     <>

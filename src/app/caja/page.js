@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { fmt } from "@/lib/formatters";
 import clsx from "clsx";
 import { printTicket } from "@/lib/printTicket";
+import { playNotificationSound } from "@/lib/sound";
 
 function ready(p) {
   const dets = p.detalles || [];
@@ -46,7 +47,20 @@ export default function CajaPage() {
   useEffect(() => {
     load();
   }, [load]);
-  useRealtime(load);
+
+  const handleRealtime = useCallback((ev) => {
+    load();
+    if (ev?.table === "detalle_pedidos" && ev?.estado_cocina === "entregado") {
+      playNotificationSound("cobro");
+      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Cliente");
+      toast(`Orden lista para cobro (${target})`);
+    } else if (ev?.table === "detalle_pedidos" && ev?.estado_cocina === "pendiente") {
+      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Cliente");
+      toast(`Nuevo pedido enviado a cocina (${target})`);
+    }
+  }, [load, toast]);
+
+  useRealtime(handleRealtime);
 
   async function abrirCaja(e) {
     e.preventDefault();

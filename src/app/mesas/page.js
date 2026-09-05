@@ -8,6 +8,7 @@ import { useToast } from "@/components/Toast";
 import { fmt } from "@/lib/formatters";
 import clsx from "clsx";
 import { Utensils, Plus } from "lucide-react";
+import { playNotificationSound } from "@/lib/sound";
 
 export default function MesasPage() {
   const [mesas, setMesas] = useState([]);
@@ -27,7 +28,24 @@ export default function MesasPage() {
   useEffect(() => {
     load();
   }, [load]);
-  useRealtime(load);
+
+  const handleRealtime = useCallback((ev) => {
+    load();
+    if (ev?.table === "detalle_pedidos" && ev?.estado_cocina === "preparacion") {
+      playNotificationSound("mesero");
+      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Salón");
+      toast(`Cocina inició preparación (${target})`);
+    } else if (ev?.table === "detalle_pedidos" && ev?.estado_cocina === "entregado") {
+      playNotificationSound("mesero");
+      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Salón");
+      toast(`Platillo listo en ${target}`);
+    } else if (ev?.table === "pedidos" && ev?.estado_pago === "pagada") {
+      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Pedido");
+      toast(`${target} fue cobrada en Caja`);
+    }
+  }, [load, toast]);
+
+  useRealtime(handleRealtime);
 
   async function crearMesa() {
     setAddingTable(true);

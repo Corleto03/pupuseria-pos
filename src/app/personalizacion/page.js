@@ -40,8 +40,9 @@ export default function PersonalizacionPage() {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      toast("El archivo debe ser una imagen", "err");
+    const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+    if (!ALLOWED_TYPES.includes((file.type || "").toLowerCase())) {
+      toast("Solo se permiten imágenes en formato PNG, JPG o WebP", "err");
       return;
     }
 
@@ -65,8 +66,9 @@ export default function PersonalizacionPage() {
     const file = e.dataTransfer.files[0];
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      toast("El archivo debe ser una imagen", "err");
+    const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+    if (!ALLOWED_TYPES.includes((file.type || "").toLowerCase())) {
+      toast("Solo se permiten imágenes en formato PNG, JPG o WebP", "err");
       return;
     }
 
@@ -205,7 +207,7 @@ export default function PersonalizacionPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/png, image/jpeg, image/webp"
                     onChange={handleFileChange}
                     className="hidden"
                   />

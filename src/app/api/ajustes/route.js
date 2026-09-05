@@ -18,6 +18,35 @@ export async function GET() {
   }
 }
 
+const MAX_LOGO_SIZE = 3 * 1024 * 1024; // 3 MB max
+
+function validateImageFile(file, buffer) {
+  if (buffer.length > MAX_LOGO_SIZE) {
+    throw Object.assign(new Error("La imagen excede el límite máximo de 3 MB"), { status: 400 });
+  }
+
+  const mime = String(file.type || "").toLowerCase();
+  const allowedMime = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+  if (!allowedMime.includes(mime)) {
+    throw Object.assign(new Error("Formato no permitido. Solo se aceptan imágenes PNG, JPG o WebP"), { status: 400 });
+  }
+
+  const isPng = buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  const isJpg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isWebp =
+    buffer.length >= 12 &&
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+
+  if (!isPng && !isJpg && !isWebp) {
+    throw Object.assign(new Error("El archivo no es una imagen válida o está dañado"), { status: 400 });
+  }
+
+  if (isPng) return ".png";
+  if (isWebp) return ".webp";
+  return ".jpg";
+}
+
 export async function PATCH(request) {
   // Only superadmin, admin, and gerente can edit settings
   const { user, error } = await requireUser(["superadmin", "admin", "gerente"]);
@@ -40,6 +69,7 @@ export async function PATCH(request) {
         if (file && typeof file === "object" && file.size > 0) {
           const bytes = await file.arrayBuffer();
           const buffer = Buffer.from(bytes);
+          const ext = validateImageFile(file, buffer);
           
           // Ensure public directory exists
           const publicDir = path.join(process.cwd(), "public");
@@ -47,10 +77,10 @@ export async function PATCH(request) {
             await mkdir(publicDir, { recursive: true });
           }
           
-          const filename = "logo.png";
+          const filename = `logo${ext}`;
           const uploadPath = path.join(publicDir, filename);
           await writeFile(uploadPath, buffer);
-          logoUrl = `/logo.png?v=${Date.now()}`; // Add version for cache busting
+          logoUrl = `/${filename}?v=${Date.now()}`; // Add version for cache busting
         }
       }
     } else {
@@ -86,7 +116,7 @@ export async function PATCH(request) {
     });
     return NextResponse.json(config);
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: err.status || 500 });
   }
 }
 

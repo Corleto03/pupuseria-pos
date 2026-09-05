@@ -31,7 +31,7 @@ export default function UsuariosPage() {
     toast("Usuario creado"); load();
   }
   async function toggle(u) {
-    const res = await fetch(`/api/usuarios/${u.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ activo: !u.activo }) });
+    const res = await fetch(`/api/usuarios/${u.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ activo: !u.activo }) });
     const data = await res.json();
     if (!res.ok) return toast(data.error, "err");
     toast(u.activo ? "Usuario desactivado" : "Usuario activado"); load();

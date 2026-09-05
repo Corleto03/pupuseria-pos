@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { X, Eye, EyeOff, Check, AlertCircle, KeyRound } from "lucide-react";
@@ -46,7 +46,7 @@ export default function ChangePasswordModal({
 
     try {
       const res = await fetch(`/api/usuarios/${usuario.id}`, {
-        method: "PATCH",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });

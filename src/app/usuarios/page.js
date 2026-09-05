@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Shell from "@/components/Shell";
 import { useToast } from "@/components/Toast";
 import ConfirmModal from "@/components/ConfirmModal";
+import ChangePasswordModal from "@/components/ChangePasswordModal";
+import { KeyRound } from "lucide-react";
 
 const roles = ["admin", "gerente", "mesero", "cocinero", "cajero"];
 
@@ -11,6 +13,7 @@ export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState([]);
   const [form, setForm] = useState({ nombre: "", email: "", rol: "mesero", password: "" });
   const [deleteUserObj, setDeleteUserObj] = useState(null);
+  const [passwordUserObj, setPasswordUserObj] = useState(null);
   const toast = useToast();
   const load = useCallback(async () => {
     const res = await fetch("/api/usuarios");
@@ -33,14 +36,6 @@ export default function UsuariosPage() {
     if (!res.ok) return toast(data.error, "err");
     toast(u.activo ? "Usuario desactivado" : "Usuario activado"); load();
   }
-  async function reset(u) {
-    const password = window.prompt(`Nueva contraseña para ${u.nombre} (mínimo 12 caracteres):`);
-    if (!password) return;
-    const res = await fetch(`/api/usuarios/${u.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
-    const data = await res.json();
-    if (!res.ok) return toast(data.error, "err");
-    toast("Contraseña actualizada");
-  }
   async function ejecutarEliminarUsuario() {
     if (!deleteUserObj) return;
     const res = await fetch(`/api/usuarios/${deleteUserObj.id}`, { method: "DELETE" });
@@ -58,7 +53,69 @@ export default function UsuariosPage() {
       <input className="input" type="password" minLength="12" placeholder="Contraseña (12+)" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
       <button className="btn-primary">Crear usuario</button>
     </form>
-    <div className="card overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-line text-left text-xs text-mute"><th className="p-3">Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3 text-right">Acciones</th></tr></thead><tbody>{usuarios.map((u) => <tr key={u.id} className="border-b border-line/70"><td className="p-3"><p className="font-medium">{u.nombre}</p><p className="text-xs text-mute">{u.email}</p></td><td className="p-3 capitalize">{u.rol}</td><td className="p-3">{u.activo ? "Activo" : "Inactivo"}</td><td className="p-3 text-right"><button onClick={() => reset(u)} className="mr-3 text-xs text-mute">Contraseña</button><button onClick={() => toggle(u)} className="mr-3 text-xs text-wine">{u.activo ? "Desactivar" : "Activar"}</button><button onClick={() => setDeleteUserObj(u)} className="text-xs text-red-600 hover:text-red-800 font-semibold">Eliminar</button></td></tr>)}</tbody></table></div>
+    <div className="card overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-line text-left text-xs text-mute">
+            <th className="p-3">Usuario</th>
+            <th className="p-3">Rol</th>
+            <th className="p-3">Estado</th>
+            <th className="p-3 text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {usuarios.map((u) => (
+            <tr key={u.id} className="border-b border-line/70 hover:bg-stone-50/60 transition-colors">
+              <td className="p-3">
+                <p className="font-medium text-ink">{u.nombre}</p>
+                <p className="text-xs text-mute">{u.email}</p>
+              </td>
+              <td className="p-3 capitalize">{u.rol}</td>
+              <td className="p-3">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${u.activo ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-stone-100 text-stone-500 border border-stone-200"}`}>
+                  {u.activo ? "Activo" : "Inactivo"}
+                </span>
+              </td>
+              <td className="p-3 text-right">
+                <button
+                  type="button"
+                  onClick={() => setPasswordUserObj(u)}
+                  className="inline-flex items-center gap-1.5 mr-2 text-xs font-semibold text-stone-700 hover:text-ink px-2.5 py-1.5 rounded-lg border border-line bg-white hover:bg-stone-50 shadow-xs transition-colors"
+                  title="Cambiar contraseña"
+                >
+                  <KeyRound size={13} className="text-amber-700" />
+                  <span>Contraseña</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggle(u)}
+                  className="mr-2 text-xs text-wine hover:underline font-medium px-2 py-1 rounded-lg hover:bg-wine/5 transition-colors"
+                >
+                  {u.activo ? "Desactivar" : "Activar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteUserObj(u)}
+                  className="text-xs text-red-600 hover:text-red-800 font-semibold px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+                >
+                  Eliminar
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <ChangePasswordModal
+      isOpen={!!passwordUserObj}
+      usuario={passwordUserObj}
+      onClose={() => setPasswordUserObj(null)}
+      onSuccess={(msg) => {
+        toast(msg);
+        load();
+      }}
+    />
 
     <ConfirmModal
       isOpen={!!deleteUserObj}

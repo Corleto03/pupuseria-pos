@@ -1,5 +1,5 @@
 export const PEDIDO_SELECT = `
-  SELECT p.id, p.tipo_pedido, p.nombre_control, p.id_mesa, p.id_usuario, p.estado_pago, p.fecha, p.metodo_pago, p.pago_efectivo, p.pago_tarjeta, p.monto_recibido, p.vuelto, p.fecha_pago, p.notas,
+  SELECT p.id, p.tipo_pedido, p.nombre_control, p.id_mesa, p.id_usuario, p.estado_pago, p.fecha, p.metodo_pago, p.pago_efectivo, p.pago_tarjeta, p.monto_recibido, p.vuelto, p.fecha_pago, p.notas, p.ronda_actual,
          COALESCE(
            (
              SELECT SUM(d2.precio_unitario * d2.cantidad)
@@ -23,7 +23,10 @@ export const PEDIDO_SELECT = `
                'variante', d.variante,
                'precio_unitario', d.precio_unitario,
                'producto_nombre', pr.nombre,
-               'categoria', pr.categoria
+               'categoria', pr.categoria,
+               'estacion', COALESCE(d.estacion, pr.categoria),
+               'ronda', COALESCE(d.ronda, 1),
+               'impreso', COALESCE(d.impreso, FALSE)
              ) ORDER BY d.created_at
            ) FILTER (WHERE d.id IS NOT NULL),
            '[]'

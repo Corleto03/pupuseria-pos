@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS public.mesas (
 CREATE TABLE IF NOT EXISTS public.productos (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nombre        TEXT NOT NULL,
-  categoria     TEXT NOT NULL CHECK (categoria IN ('pupusa', 'bebida', 'extra')),
+  categoria     TEXT NOT NULL CHECK (categoria IN ('pupusa', 'bebida', 'extra', 'panes')),
   precio        NUMERIC(10,2) NOT NULL CHECK (precio >= 0),
   especialidad  TEXT,
   activo        BOOLEAN NOT NULL DEFAULT TRUE,
@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS public.pedidos (
   fecha           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fecha_pago      TIMESTAMPTZ,
   notas           TEXT,
+  ronda_actual    INT NOT NULL DEFAULT 1,
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT pedidos_mesa_si_local CHECK (
     (tipo_pedido = 'local' AND id_mesa IS NOT NULL)
@@ -82,6 +83,9 @@ CREATE TABLE IF NOT EXISTS public.detalle_pedidos (
                    CHECK (destino_servicio IN ('local', 'llevar')),
   notas          TEXT,
   variante       TEXT,
+  estacion       TEXT,
+  ronda          INT NOT NULL DEFAULT 1,
+  impreso        BOOLEAN NOT NULL DEFAULT FALSE,
   precio_unitario NUMERIC(10,2) NOT NULL,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -281,33 +285,41 @@ CREATE TRIGGER trg_recalc_total
 
 CREATE OR REPLACE FUNCTION public.sync_mesa_estado()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+  v_mesa UUID;
 BEGIN
-  IF TG_OP = 'INSERT' AND NEW.tipo_pedido = 'local' AND NEW.id_mesa IS NOT NULL THEN
-    UPDATE public.mesas SET estado = 'ocupada' WHERE id = NEW.id_mesa;
-  ELSIF TG_OP = 'UPDATE' THEN
-    IF OLD.id_mesa IS NOT NULL AND (
-      NEW.estado_pago IN ('pagada', 'cancelada')
-      OR NEW.id_mesa IS DISTINCT FROM OLD.id_mesa
-    ) THEN
-      UPDATE public.mesas SET estado = 'disponible' WHERE id = OLD.id_mesa
-        AND NOT EXISTS (
-          SELECT 1 FROM public.pedidos p
-          WHERE p.id_mesa = OLD.id_mesa
-            AND p.estado_pago = 'pendiente'
-            AND p.id <> NEW.id
-        );
-    END IF;
-    IF NEW.tipo_pedido = 'local' AND NEW.id_mesa IS NOT NULL AND NEW.estado_pago = 'pendiente' THEN
-      UPDATE public.mesas SET estado = 'ocupada' WHERE id = NEW.id_mesa;
-    END IF;
+  v_mesa := COALESCE(NEW.id_mesa, OLD.id_mesa);
+  IF v_mesa IS NOT NULL THEN
+    UPDATE public.mesas
+    SET estado = CASE 
+      WHEN EXISTS (
+        SELECT 1 FROM public.pedidos p
+        WHERE p.id_mesa = v_mesa AND p.estado_pago = 'pendiente'
+      ) THEN 'ocupada'
+      ELSE 'disponible'
+    END
+    WHERE id = v_mesa;
   END IF;
-  RETURN NEW;
+
+  IF TG_OP = 'UPDATE' AND OLD.id_mesa IS NOT NULL AND NEW.id_mesa IS DISTINCT FROM OLD.id_mesa THEN
+    UPDATE public.mesas
+    SET estado = CASE 
+      WHEN EXISTS (
+        SELECT 1 FROM public.pedidos p
+        WHERE p.id_mesa = OLD.id_mesa AND p.estado_pago = 'pendiente'
+      ) THEN 'ocupada'
+      ELSE 'disponible'
+    END
+    WHERE id = OLD.id_mesa;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
 END;
 $$;
 
 DROP TRIGGER IF EXISTS trg_sync_mesa ON public.pedidos;
 CREATE TRIGGER trg_sync_mesa
-  AFTER INSERT OR UPDATE ON public.pedidos
+  AFTER INSERT OR UPDATE OR DELETE ON public.pedidos
   FOR EACH ROW EXECUTE FUNCTION public.sync_mesa_estado();
 
 CREATE OR REPLACE FUNCTION public.protect_detalle_pendiente()
@@ -532,6 +544,7 @@ ALTER TABLE public.pedidos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detalle_pedidos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.auditoria ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ajustes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.intentos_login ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.usuarios FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.mesas FORCE ROW LEVEL SECURITY;
@@ -540,6 +553,7 @@ ALTER TABLE public.pedidos FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.detalle_pedidos FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.auditoria FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.ajustes FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.intentos_login FORCE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS usuarios_select ON public.usuarios;
 CREATE POLICY usuarios_select ON public.usuarios FOR SELECT
@@ -617,6 +631,11 @@ DROP POLICY IF EXISTS auditoria_select ON public.auditoria;
 CREATE POLICY auditoria_select ON public.auditoria FOR SELECT
   USING (public.current_app_role() IN ('superadmin', 'admin'));
 
+DROP POLICY IF EXISTS auditoria_insert ON public.auditoria;
+CREATE POLICY auditoria_insert ON public.auditoria FOR INSERT
+  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'));
+
+
 DROP POLICY IF EXISTS ajustes_select ON public.ajustes;
 CREATE POLICY ajustes_select ON public.ajustes FOR SELECT
   USING (true);
@@ -625,6 +644,11 @@ DROP POLICY IF EXISTS ajustes_write ON public.ajustes;
 CREATE POLICY ajustes_write ON public.ajustes FOR ALL
   USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente'))
   WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente'));
+
+DROP POLICY IF EXISTS intentos_admin_only ON public.intentos_login;
+CREATE POLICY intentos_admin_only ON public.intentos_login FOR ALL
+  USING (public.current_app_role() IN ('superadmin', 'admin'))
+  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin'));
 
 -- ─────────────────────────────────────────────
 -- PERMISOS
@@ -719,3 +743,40 @@ CREATE POLICY caja_write ON public.caja FOR ALL
   WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cajero'));
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.caja TO pupuseria_app, pupuseria_prod;
+
+CREATE TABLE IF NOT EXISTS public.estaciones_pedido (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id_pedido   UUID NOT NULL REFERENCES public.pedidos(id) ON DELETE CASCADE,
+  estacion    TEXT NOT NULL CHECK (estacion IN ('pupusa', 'panes', 'bebida', 'extra')),
+  lista       BOOLEAN NOT NULL DEFAULT FALSE,
+  ts_lista    TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (id_pedido, estacion)
+);
+CREATE INDEX IF NOT EXISTS idx_estaciones_pedido ON public.estaciones_pedido(id_pedido);
+
+ALTER TABLE public.estaciones_pedido ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.estaciones_pedido FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS estaciones_select ON public.estaciones_pedido;
+CREATE POLICY estaciones_select ON public.estaciones_pedido FOR SELECT
+  USING (public.is_staff());
+
+DROP POLICY IF EXISTS estaciones_write ON public.estaciones_pedido;
+CREATE POLICY estaciones_write ON public.estaciones_pedido FOR ALL
+  USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cocinero', 'mesero', 'cajero'))
+  WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cocinero', 'mesero', 'cajero'));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.estaciones_pedido TO pupuseria_app, pupuseria_prod;
+
+DROP TRIGGER IF EXISTS trg_rt_estaciones ON public.estaciones_pedido;
+CREATE TRIGGER trg_rt_estaciones
+  AFTER INSERT OR UPDATE OR DELETE ON public.estaciones_pedido
+  FOR EACH ROW EXECUTE FUNCTION public.notify_pos_event();
+
+INSERT INTO public.productos (nombre, categoria, precio, sort_order) VALUES
+  ('Pan con Gallina Simple',    'panes', 3.00, 40),
+  ('Pan con Gallina Completo',  'panes', 4.00, 41),
+  ('Pan con Chumpe',            'panes', 3.50, 42)
+ON CONFLICT (nombre) DO NOTHING;
+

@@ -8,20 +8,21 @@ export default {
   theme: {
     extend: {
       colors: {
-        paper: "#F3EEE6",
-        ink: "#1C1714",
-        mute: "#6F675E",
-        line: "#E4DCD0",
+        paper: "#F7F5F0",
+        ink: "#18181B",
+        mute: "#66615B",
+        line: "#E2DDD5",
         clay: "#C2410C",
-        moss: "#2F6B45",
-        wine: "#B42318",
+        moss: "#15803D",
+        wine: "#B91C1C",
       },
       fontFamily: {
-        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        sans: ["var(--font-sans)", "system-ui", "-apple-system", "sans-serif"],
         display: ["var(--font-display)", "Georgia", "serif"],
       },
       boxShadow: {
-        card: "0 1px 0 rgba(28,23,20,0.04), 0 12px 32px -20px rgba(28,23,20,0.35)",
+        card: "0 1px 2px rgba(0, 0, 0, 0.04)",
+        modal: "0 4px 20px rgba(0, 0, 0, 0.08)",
       },
     },
   },

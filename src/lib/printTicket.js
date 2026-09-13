@@ -1,3 +1,5 @@
+import { imprimirTicketCobro } from "@/lib/hardwareBridge";
+
 export async function printTicket(pedidoId) {
   const [resPed, resConf] = await Promise.all([
     fetch(`/api/pedidos/${pedidoId}`),
@@ -10,8 +12,6 @@ export async function printTicket(pedidoId) {
   const restName = config.nombre_restaurante || "OceanSis";
   const logoUrl = config.logo_url || "";
 
-  const win = window.open("", "_blank", "width=420,height=640");
-  if (!win) return;
   const esc = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
   // Group items visually for ticket
@@ -55,7 +55,7 @@ export async function printTicket(pedidoId) {
     : (pedido.metodo_pago === "efectivo" ? totalVal + Number(pedido.vuelto || 0) : totalVal);
   const vueltoVal = Number(pedido.vuelto || 0);
 
-  win.document.write(`<!doctype html>
+  const ticketHtml = `<!doctype html>
 <html>
 <head>
   <title>Ticket #${pedido.id.slice(0, 8)}</title>
@@ -112,7 +112,23 @@ export async function printTicket(pedidoId) {
     <p>¡Gracias por su compra!</p>
   </div>
 </body>
-</html>`);
+</html>`;
+
+
+  // 1. Envío directo a impresora de caja (impresión silenciosa + apertura de gaveta)
+  const bridgeRes = await imprimirTicketCobro({
+    html: ticketHtml,
+    data: pedido,
+  });
+
+  if (bridgeRes.ok) {
+    return;
+  }
+
+  // 2. Fallback estándar al cuadro de diálogo de impresión del navegador
+  const win = window.open("", "_blank", "width=420,height=640");
+  if (!win) return;
+  win.document.write(ticketHtml);
   win.document.close();
   win.focus();
   win.print();

@@ -15,7 +15,7 @@ export default function MenuPage() {
   const toast = useToast();
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/productos");
+    const res = await fetch("/api/productos?todos=true");
     const data = await res.json();
     setProductos(data.productos || []);
   }, []);
@@ -123,6 +123,7 @@ export default function MenuPage() {
           onChange={(e) => setForm({ ...form, categoria: e.target.value })}
         >
           <option value="pupusa">Pupusa</option>
+          <option value="panes">Panes con gallina</option>
           <option value="bebida">Bebida</option>
           <option value="extra">Extra</option>
         </select>
@@ -171,10 +172,10 @@ export default function MenuPage() {
                     type="button"
                     onClick={() => toggleActivo(p)}
                     className={clsx(
-                      "rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors",
+                      "rounded-md px-2.5 py-0.5 text-xs font-semibold border transition-colors",
                       p.activo
-                        ? "bg-moss/10 text-moss hover:bg-moss/20"
-                        : "bg-wine/10 text-wine hover:bg-wine/20"
+                        ? "bg-emerald-700 text-white hover:bg-emerald-800"
+                        : "bg-stone-200 text-stone-700 hover:bg-stone-300"
                     )}
                   >
                     {p.activo ? "Activo" : "Inactivo"}

@@ -72,7 +72,7 @@ export default function UsuariosPage() {
               </td>
               <td className="p-3 capitalize">{u.rol}</td>
               <td className="p-3">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${u.activo ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-stone-100 text-stone-500 border border-stone-200"}`}>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider ${u.activo ? "bg-emerald-700 text-white" : "bg-stone-200 text-stone-700"}`}>
                   {u.activo ? "Activo" : "Inactivo"}
                 </span>
               </td>

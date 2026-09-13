@@ -17,8 +17,13 @@
 /.next/
 /out/
 
-# production
+# production & distribution builds
 /build
+dist/
+dist-electron/
+*.exe
+*.zip
+**/node_modules/
 
 # misc
 .DS_Store

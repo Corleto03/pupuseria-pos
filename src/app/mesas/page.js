@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
+
 import { useRouter } from "next/navigation";
 import Shell from "@/components/Shell";
 import { useRealtime } from "@/hooks/useRealtime";
@@ -29,23 +30,23 @@ export default function MesasPage() {
     load();
   }, [load]);
 
-  const handleRealtime = useCallback((ev) => {
-    load();
-    if (ev?.table === "detalle_pedidos" && ev?.estado_cocina === "preparacion") {
-      playNotificationSound("mesero");
-      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Salón");
-      toast(`Cocina inició preparación (${target})`);
-    } else if (ev?.table === "detalle_pedidos" && ev?.estado_cocina === "entregado") {
-      playNotificationSound("mesero");
-      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Salón");
-      toast(`Platillo listo en ${target}`);
-    } else if (ev?.table === "pedidos" && ev?.estado_pago === "pagada") {
-      const target = ev.mesa_numero ? `Mesa ${ev.mesa_numero}` : (ev.nombre_control || "Pedido");
-      toast(`${target} fue cobrada en Caja`);
-    }
-  }, [load, toast]);
+  const lastToastRef = useRef(new Map());
+  const loadTimeoutRef = useRef(null);
+
+  const debouncedLoad = useCallback(() => {
+    if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+    loadTimeoutRef.current = setTimeout(() => {
+      load();
+    }, 250);
+  }, [load]);
+
+  const handleRealtime = useCallback(() => {
+    debouncedLoad();
+  }, [debouncedLoad]);
 
   useRealtime(handleRealtime);
+
+
 
   async function crearMesa() {
     setAddingTable(true);
@@ -99,9 +100,10 @@ export default function MesasPage() {
         </button>
       }
     >
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+
         {mesas.map((m) => {
-          const ocupada = m.estado === "ocupada";
+          const ocupada = m.estado === "ocupada" || Boolean(m.pedido_id);
           return (
             <button
               key={m.id}
@@ -109,50 +111,65 @@ export default function MesasPage() {
                 if (ocupada && m.pedido_id) router.push(`/mesas/${m.id}?pedido=${m.pedido_id}`);
                 else setOpen(m);
               }}
-              className="card group p-5 text-left transition hover:-translate-y-0.5"
+              className={clsx(
+                "card p-5 text-left transition flex flex-col justify-between min-h-[145px] shadow-card hover:border-stone-400",
+                ocupada ? "border-rose-200/80 bg-white" : "border-line bg-white"
+              )}
             >
               <div className="flex items-start justify-between">
-                <span className="font-display text-3xl">Mesa {m.numero}</span>
+                <span className="text-2xl font-bold text-stone-900">Mesa {m.numero}</span>
                 <span
                   className={clsx(
-                    "h-3 w-3 rounded-full",
-                    ocupada ? "bg-wine" : "bg-moss"
+                    "text-[11px] font-bold px-2.5 py-0.5 rounded text-white tracking-wider uppercase",
+                    ocupada ? "bg-rose-700" : "bg-emerald-700"
                   )}
-                />
-              </div>
-              <div className="flex items-center gap-2 mt-4 text-mute group-hover:text-ink transition-colors">
-                <Utensils size={18} className={ocupada ? "text-wine" : "text-moss"} />
-                <span className="text-xs font-semibold truncate">
-                  {ocupada ? m.nombre_control : "Comedor"}
+                >
+                  {ocupada ? "Ocupada" : "Libre"}
                 </span>
               </div>
-              <p className={clsx("mt-2 text-sm font-medium", ocupada ? "text-wine" : "text-moss")}>
-                {ocupada ? `Ocupada · ${fmt.money(m.total)}` : "Disponible"}
-              </p>
+
+              <div className="mt-4 pt-3 border-t border-line/60 flex flex-col justify-between">
+                <span className="text-xs font-semibold text-stone-800 truncate">
+                  {ocupada ? m.nombre_control : "Lista para abrir"}
+                </span>
+                <span className={clsx("text-sm font-mono font-bold mt-0.5", ocupada ? "text-stone-900" : "text-stone-400")}>
+                  {ocupada ? fmt.money(m.total) : "Disponible"}
+                </span>
+              </div>
             </button>
           );
         })}
       </div>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-          <form onSubmit={abrir} className="card w-full max-w-sm p-6">
-            <h3 className="font-display text-xl">Abrir mesa {open.numero}</h3>
-            <p className="mt-1 text-sm text-mute">Nombre de control del pedido</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form onSubmit={abrir} className="w-full max-w-sm p-6 bg-white border border-stone-300 shadow-xl rounded-xl">
+            <h3 className="font-semibold text-lg text-stone-900">Abrir mesa {open.numero}</h3>
+            <p className="mt-1 text-xs text-stone-500">Nombre de control o referencia del cliente</p>
             <input
               autoFocus
-              className="input mt-4"
-              placeholder="Familia Pérez"
+              className="input mt-4 text-sm"
+              placeholder="Ej: Familia Pérez"
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
-              required
             />
             <div className="mt-5 flex gap-2">
-              <button type="button" onClick={() => setOpen(null)} className="btn-ghost flex-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(null);
+                  setNombre("");
+                }}
+                className="btn-secondary flex-1 text-xs py-2"
+              >
                 Cancelar
               </button>
-              <button disabled={saving || !nombre.trim()} className="btn-primary flex-1">
-                Abrir
+              <button
+                type="submit"
+                disabled={saving || !nombre.trim()}
+                className="btn-primary flex-1 text-xs py-2 font-semibold"
+              >
+                {saving ? "Abriendo..." : "Abrir Mesa"}
               </button>
             </div>
           </form>

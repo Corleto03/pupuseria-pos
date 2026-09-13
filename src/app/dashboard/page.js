@@ -303,13 +303,13 @@ export default function DashboardPage() {
             <p className="mt-1 text-xs text-mute">Registro de dinero contado al cerrar turno vs esperado por ventas de efectivo</p>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-medium">
+            <span className="px-2.5 py-1 rounded bg-emerald-700 text-white font-semibold">
               Cuadradas: {data?.resumen_cajas?.cuadradas || 0}
             </span>
-            <span className="px-2.5 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-200 font-medium">
+            <span className="px-2.5 py-1 rounded bg-rose-700 text-white font-semibold">
               Faltantes: -{fmt.money(data?.resumen_cajas?.faltantes || 0)}
             </span>
-            <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-medium">
+            <span className="px-2.5 py-1 rounded bg-amber-600 text-white font-semibold">
               Sobrantes: +{fmt.money(data?.resumen_cajas?.sobrantes || 0)}
             </span>
           </div>
@@ -344,19 +344,19 @@ export default function DashboardPage() {
                     </td>
                     <td className="py-3 text-center">
                       {c.cierre === null ? (
-                        <span className="rounded-full bg-stone-100 border border-stone-300 text-stone-700 px-2.5 py-0.5 text-xs font-medium">
+                        <span className="rounded bg-stone-200 text-stone-800 px-2.5 py-0.5 text-xs font-medium">
                           Turno en curso
                         </span>
                       ) : Math.abs(diff || 0) < 0.01 ? (
-                        <span className="rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 px-2.5 py-0.5 text-xs font-bold">
+                        <span className="rounded bg-emerald-700 text-white px-2.5 py-0.5 text-xs font-bold">
                           Cuadró Exacto ($0.00)
                         </span>
                       ) : diff < 0 ? (
-                        <span className="rounded-full bg-rose-50 border border-rose-300 text-rose-800 px-2.5 py-0.5 text-xs font-bold">
+                        <span className="rounded bg-rose-700 text-white px-2.5 py-0.5 text-xs font-bold">
                           Faltante: -{fmt.money(Math.abs(diff))}
                         </span>
                       ) : (
-                        <span className="rounded-full bg-amber-50 border border-amber-300 text-amber-900 px-2.5 py-0.5 text-xs font-bold">
+                        <span className="rounded bg-amber-600 text-white px-2.5 py-0.5 text-xs font-bold">
                           Sobrante: +{fmt.money(diff)}
                         </span>
                       )}

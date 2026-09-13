@@ -8,7 +8,10 @@ export async function GET() {
 
   const mesas = await withUser(user, (c) =>
     c.query(
-      `SELECT m.*,
+      `SELECT m.id,
+              m.numero,
+              m.capacidad,
+              CASE WHEN p.id IS NOT NULL THEN 'ocupada' ELSE 'disponible' END AS estado,
               p.id AS pedido_id,
               p.nombre_control,
               COALESCE(
@@ -22,8 +25,13 @@ export async function GET() {
               ) AS total,
               p.fecha
        FROM mesas m
-       LEFT JOIN pedidos p
-         ON p.id_mesa = m.id AND p.estado_pago = 'pendiente' AND p.tipo_pedido = 'local'
+       LEFT JOIN LATERAL (
+         SELECT p1.id, p1.nombre_control, p1.total, p1.fecha
+         FROM pedidos p1
+         WHERE p1.id_mesa = m.id AND p1.estado_pago = 'pendiente'
+         ORDER BY p1.fecha DESC
+         LIMIT 1
+       ) p ON true
        ORDER BY m.numero`
     )
   );

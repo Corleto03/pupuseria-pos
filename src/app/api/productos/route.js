@@ -2,15 +2,19 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/api";
 import { withUser } from "@/lib/db";
 
-export async function GET() {
+export async function GET(request) {
   const { user, error } = await requireUser();
   if (error) return error;
+
+  const { searchParams } = new URL(request.url);
+  const todos = searchParams.get("todos") === "true";
+  const isManagement = ["superadmin", "admin", "gerente"].includes(user.rol);
+
   const { rows } = await withUser(user, (c) => {
-    if (user.rol === "gerente") {
+    if (todos && isManagement) {
       return c.query("SELECT * FROM productos ORDER BY sort_order, nombre");
-    } else {
-      return c.query("SELECT * FROM productos WHERE activo = TRUE ORDER BY sort_order, nombre");
     }
+    return c.query("SELECT * FROM productos WHERE activo = TRUE ORDER BY sort_order, nombre");
   });
   return NextResponse.json({ productos: rows });
 }

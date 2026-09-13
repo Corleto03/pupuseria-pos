@@ -11,7 +11,12 @@ export async function PATCH(request, { params }) {
       ? ["superadmin", "admin"]
       : ["superadmin", "admin", "gerente", "cocinero"])
     : ["superadmin", "admin", "gerente", "mesero", "cajero"];
-  const { user, error } = await requireUser(roles);
+
+  const errorMsg = body.estado_cocina
+    ? "Tu rol no permite cambiar el estado de platillos en cocina ni marcarlos como listos. Esta acción corresponde al personal de Cocina o Administración."
+    : undefined;
+
+  const { user, error } = await requireUser(roles, errorMsg);
   if (error) return error;
 
   try {
@@ -35,8 +40,8 @@ export async function PATCH(request, { params }) {
               );
               // 2. Create the new item in the new state
               result = await c.query(
-                `INSERT INTO detalle_pedidos (id_pedido, id_producto, cantidad, estado_cocina, notas, variante, destino_servicio, precio_unitario)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                `INSERT INTO detalle_pedidos (id_pedido, id_producto, cantidad, estado_cocina, notas, variante, destino_servicio, precio_unitario, estacion)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                  RETURNING *`,
                 [
                   id,
@@ -47,6 +52,7 @@ export async function PATCH(request, { params }) {
                   current.variante,
                   current.destino_servicio,
                   current.precio_unitario,
+                  current.estacion,
                 ]
               );
             }
@@ -63,6 +69,20 @@ export async function PATCH(request, { params }) {
           );
         }
       } else if (body.cantidad != null) {
+        const itemRes = await c.query(
+          "SELECT estado_cocina, cantidad FROM detalle_pedidos WHERE id = $1 AND id_pedido = $2",
+          [detalleId, id]
+        );
+        const currentItem = itemRes.rows[0];
+        if (currentItem && ["pendiente", "preparacion", "entregado"].includes(currentItem.estado_cocina)) {
+          const canAnular = ["superadmin", "admin", "gerente"].includes(user.rol);
+          if (!canAnular) {
+            throw Object.assign(
+              new Error("No puedes modificar o anular la cantidad de un platillo enviado a cocina o entregado. Requiere autorización de Administrador o Gerente."),
+              { code: "P0001" }
+            );
+          }
+        }
         result = await c.query(
           `UPDATE detalle_pedidos SET cantidad = $1
            WHERE id = $2 AND id_pedido = $3 AND estado_cocina IN ('borrador', 'pendiente') RETURNING *`,
@@ -145,21 +165,34 @@ export async function DELETE(req, { params }) {
   const qty = qtyParam ? parseInt(qtyParam, 10) : null;
 
   try {
-    const { rowCount } = await withUser(user, async (c) => {
-      await c.query("SET LOCAL app.bypass_triggers = 'true'");
-      if (qty && qty > 0) {
-        const currentRes = await c.query(
-          "SELECT cantidad FROM detalle_pedidos WHERE id = $1 AND id_pedido = $2",
-          [detalleId, id]
-        );
-        if (currentRes.rows[0] && qty < currentRes.rows[0].cantidad) {
-          return c.query(
-            "UPDATE detalle_pedidos SET cantidad = cantidad - $1 WHERE id = $2 AND id_pedido = $3",
-            [qty, detalleId, id]
+    const rowCount = await withUser(user, async (c) => {
+      const itemRes = await c.query(
+        "SELECT estado_cocina, cantidad FROM detalle_pedidos WHERE id = $1 AND id_pedido = $2",
+        [detalleId, id]
+      );
+      if (!itemRes.rows[0]) return 0;
+      const currentItem = itemRes.rows[0];
+
+      if (["pendiente", "preparacion", "entregado"].includes(currentItem.estado_cocina)) {
+        const canAnular = ["superadmin", "admin", "gerente"].includes(user.rol);
+        if (!canAnular) {
+          throw Object.assign(
+            new Error("No puedes anular o eliminar un platillo ya enviado a cocina o entregado. Requiere autorización de Administrador o Gerente."),
+            { code: "P0001" }
           );
         }
       }
-      return c.query("DELETE FROM detalle_pedidos WHERE id = $1 AND id_pedido = $2", [detalleId, id]);
+
+      await c.query("SET LOCAL app.bypass_triggers = 'true'");
+      if (qty && qty > 0 && qty < currentItem.cantidad) {
+        const r = await c.query(
+          "UPDATE detalle_pedidos SET cantidad = cantidad - $1 WHERE id = $2 AND id_pedido = $3",
+          [qty, detalleId, id]
+        );
+        return r.rowCount;
+      }
+      const r = await c.query("DELETE FROM detalle_pedidos WHERE id = $1 AND id_pedido = $2", [detalleId, id]);
+      return r.rowCount;
     });
     if (!rowCount) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     return NextResponse.json({ ok: true });
@@ -167,3 +200,4 @@ export async function DELETE(req, { params }) {
     return NextResponse.json({ error: pgError(err) }, { status: 409 });
   }
 }
+

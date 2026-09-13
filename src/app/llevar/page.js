@@ -96,7 +96,11 @@ export default function LlevarPage() {
             <button
               key={p.id}
               onClick={() => setActivo(p)}
-              className={`rounded-full px-3 py-1.5 text-sm ${activo?.id === p.id ? "bg-ink text-paper" : "bg-white"}`}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold border transition shadow-sm ${
+                activo?.id === p.id
+                  ? "bg-stone-900 text-white border-stone-900"
+                  : "bg-white text-stone-700 border-stone-300 hover:bg-stone-100"
+              }`}
             >
               {p.nombre_control} · {fmt.money(p.total)}
             </button>
@@ -106,8 +110,8 @@ export default function LlevarPage() {
       {activo && (
         <>
           <div className="mb-4 flex justify-end">
-            <button onClick={() => setCobro(true)} className="btn-clay">
-              Cobrar
+            <button onClick={() => setCobro(true)} className="btn-emerald text-xs py-2 px-4 font-semibold">
+              Cobrar Pedido ({fmt.money(activo.total)})
             </button>
           </div>
           <OrderTicket pedido={activo} productos={productos} onChanged={load} toast={toast} />

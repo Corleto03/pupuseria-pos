@@ -242,6 +242,50 @@ async function main() {
       WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'mesero', 'cajero'));
   `);
 
+  console.log("Actualizando función sync_mesa_estado para soportar DELETE...");
+  await client.query(`
+    CREATE OR REPLACE FUNCTION public.sync_mesa_estado()
+    RETURNS TRIGGER LANGUAGE plpgsql AS $$
+    BEGIN
+      IF TG_OP = 'INSERT' AND NEW.tipo_pedido = 'local' AND NEW.id_mesa IS NOT NULL THEN
+        UPDATE public.mesas SET estado = 'ocupada' WHERE id = NEW.id_mesa;
+      ELSIF TG_OP = 'UPDATE' THEN
+        IF OLD.id_mesa IS NOT NULL AND (
+          NEW.estado_pago IN ('pagada', 'cancelada')
+          OR NEW.id_mesa IS DISTINCT FROM OLD.id_mesa
+        ) THEN
+          UPDATE public.mesas SET estado = 'disponible' WHERE id = OLD.id_mesa
+            AND NOT EXISTS (
+              SELECT 1 FROM public.pedidos p
+              WHERE p.id_mesa = OLD.id_mesa
+                AND p.estado_pago = 'pendiente'
+                AND p.id <> NEW.id
+            );
+        END IF;
+        IF NEW.tipo_pedido = 'local' AND NEW.id_mesa IS NOT NULL AND NEW.estado_pago = 'pendiente' THEN
+          UPDATE public.mesas SET estado = 'ocupada' WHERE id = NEW.id_mesa;
+        END IF;
+      ELSIF TG_OP = 'DELETE' THEN
+        IF OLD.id_mesa IS NOT NULL THEN
+          UPDATE public.mesas SET estado = 'disponible' WHERE id = OLD.id_mesa
+            AND NOT EXISTS (
+              SELECT 1 FROM public.pedidos p
+              WHERE p.id_mesa = OLD.id_mesa
+                AND p.estado_pago = 'pendiente'
+                AND p.id <> OLD.id
+            );
+        END IF;
+      END IF;
+      RETURN COALESCE(NEW, OLD);
+    END;
+    $$;
+
+    DROP TRIGGER IF EXISTS trg_sync_mesa ON public.pedidos;
+    CREATE TRIGGER trg_sync_mesa
+      AFTER INSERT OR UPDATE OR DELETE ON public.pedidos
+      FOR EACH ROW EXECUTE FUNCTION public.sync_mesa_estado();
+  `);
+
   console.log("Actualizando función notify_pos_event para notificaciones enriquecidas...");
   await client.query(`
     CREATE OR REPLACE FUNCTION public.notify_pos_event()
@@ -298,6 +342,168 @@ async function main() {
       RETURN COALESCE(NEW, OLD);
     END;
     $$;
+  `);
+
+  // ── MULTI-ESTACION KITCHEN ──────────────────────────────────────────────
+  console.log("Agregando categoria 'panes' a productos...");
+  await client.query(`
+    ALTER TABLE public.productos DROP CONSTRAINT IF EXISTS productos_categoria_check;
+    ALTER TABLE public.productos ADD CONSTRAINT productos_categoria_check
+      CHECK (categoria IN ('pupusa', 'bebida', 'extra', 'panes'));
+  `);
+
+  console.log("Agregando columna estacion a detalle_pedidos...");
+  await client.query(`
+    ALTER TABLE public.detalle_pedidos ADD COLUMN IF NOT EXISTS estacion TEXT;
+  `);
+
+  console.log("Actualizando estacion en registros existentes...");
+  await client.query(`
+    UPDATE public.detalle_pedidos d
+    SET estacion = pr.categoria
+    FROM public.productos pr
+    WHERE pr.id = d.id_producto AND d.estacion IS NULL;
+  `);
+
+  console.log("Creando tabla estaciones_pedido...");
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS public.estaciones_pedido (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      id_pedido   UUID NOT NULL REFERENCES public.pedidos(id) ON DELETE CASCADE,
+      estacion    TEXT NOT NULL CHECK (estacion IN ('pupusa', 'panes', 'bebida', 'extra')),
+      lista       BOOLEAN NOT NULL DEFAULT FALSE,
+      ts_lista    TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (id_pedido, estacion)
+    );
+    CREATE INDEX IF NOT EXISTS idx_estaciones_pedido ON public.estaciones_pedido(id_pedido);
+
+    ALTER TABLE public.estaciones_pedido ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE public.estaciones_pedido FORCE ROW LEVEL SECURITY;
+
+    DROP POLICY IF EXISTS estaciones_select ON public.estaciones_pedido;
+    CREATE POLICY estaciones_select ON public.estaciones_pedido FOR SELECT
+      USING (public.is_staff());
+
+    DROP POLICY IF EXISTS estaciones_write ON public.estaciones_pedido;
+    CREATE POLICY estaciones_write ON public.estaciones_pedido FOR ALL
+      USING (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cocinero', 'mesero', 'cajero'))
+      WITH CHECK (public.current_app_role() IN ('superadmin', 'admin', 'gerente', 'cocinero', 'mesero', 'cajero'));
+  `);
+
+  console.log("Otorgando permisos en estaciones_pedido...");
+  await client.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pupuseria_app') THEN
+        GRANT SELECT, INSERT, UPDATE, DELETE ON public.estaciones_pedido TO pupuseria_app;
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pupuseria_prod') THEN
+        GRANT SELECT, INSERT, UPDATE, DELETE ON public.estaciones_pedido TO pupuseria_prod;
+      END IF;
+    END $$;
+  `);
+
+  console.log("Actualizando notify_pos_event para incluir estacion y evento comanda_lista...");
+  await client.query(`
+    CREATE OR REPLACE FUNCTION public.notify_pos_event()
+    RETURNS TRIGGER LANGUAGE plpgsql AS $$
+    DECLARE
+      v_id UUID;
+      v_pedido UUID;
+      v_det_estado TEXT := NULL;
+      v_pago_estado TEXT := NULL;
+      v_mesa INT := NULL;
+      v_control TEXT := NULL;
+      v_estacion TEXT := NULL;
+    BEGIN
+      IF TG_OP = 'DELETE' THEN
+        v_id := OLD.id;
+        IF TG_TABLE_NAME = 'detalle_pedidos' THEN
+          v_pedido := OLD.id_pedido;
+          v_det_estado := OLD.estado_cocina;
+          v_estacion := OLD.estacion;
+        ELSIF TG_TABLE_NAME = 'pedidos' THEN
+          v_pedido := OLD.id;
+          v_pago_estado := OLD.estado_pago;
+        ELSIF TG_TABLE_NAME = 'estaciones_pedido' THEN
+          v_pedido := OLD.id_pedido;
+          v_estacion := OLD.estacion;
+        END IF;
+      ELSE
+        v_id := NEW.id;
+        IF TG_TABLE_NAME = 'detalle_pedidos' THEN
+          v_pedido := NEW.id_pedido;
+          v_det_estado := NEW.estado_cocina;
+          v_estacion := NEW.estacion;
+        ELSIF TG_TABLE_NAME = 'pedidos' THEN
+          v_pedido := NEW.id;
+          v_pago_estado := NEW.estado_pago;
+        ELSIF TG_TABLE_NAME = 'estaciones_pedido' THEN
+          v_pedido := NEW.id_pedido;
+          v_estacion := NEW.estacion;
+        END IF;
+      END IF;
+
+      IF v_pedido IS NOT NULL THEN
+        SELECT p.nombre_control, m.numero INTO v_control, v_mesa
+        FROM public.pedidos p
+        LEFT JOIN public.mesas m ON m.id = p.id_mesa
+        WHERE p.id = v_pedido;
+      END IF;
+
+      PERFORM pg_notify(
+        'pos_events',
+        json_build_object(
+          'table', TG_TABLE_NAME,
+          'op', TG_OP,
+          'id', v_id,
+          'id_pedido', v_pedido,
+          'estado_cocina', v_det_estado,
+          'estado_pago', v_pago_estado,
+          'mesa_numero', v_mesa,
+          'nombre_control', v_control,
+          'estacion', v_estacion,
+          'ts', EXTRACT(EPOCH FROM NOW())
+        )::TEXT
+      );
+      RETURN COALESCE(NEW, OLD);
+    END;
+    $$;
+  `);
+
+  console.log("Creando trigger para estaciones_pedido...");
+  await client.query(`
+    DROP TRIGGER IF EXISTS trg_rt_estaciones ON public.estaciones_pedido;
+    CREATE TRIGGER trg_rt_estaciones
+      AFTER INSERT OR UPDATE OR DELETE ON public.estaciones_pedido
+      FOR EACH ROW EXECUTE FUNCTION public.notify_pos_event();
+  `);
+
+  console.log("Insertando productos de panes con gallina...");
+  await client.query(`
+    INSERT INTO public.productos (nombre, categoria, precio, sort_order) VALUES
+      ('Pan con Gallina Simple',    'panes', 3.00, 40),
+      ('Pan con Gallina Completo',  'panes', 4.00, 41),
+      ('Pan con Chumpe',            'panes', 3.50, 42)
+    ON CONFLICT (nombre) DO NOTHING;
+  `);
+
+  console.log("Agregando soporte de rondas y tracking de impresion...");
+  await client.query(`
+    ALTER TABLE public.pedidos ADD COLUMN IF NOT EXISTS ronda_actual INT NOT NULL DEFAULT 1;
+    ALTER TABLE public.detalle_pedidos ADD COLUMN IF NOT EXISTS ronda INT NOT NULL DEFAULT 1;
+    ALTER TABLE public.detalle_pedidos ADD COLUMN IF NOT EXISTS impreso BOOLEAN NOT NULL DEFAULT FALSE;
+  `);
+
+  console.log("Asegurando RLS en intentos_login...");
+  await client.query(`
+    ALTER TABLE public.intentos_login ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE public.intentos_login FORCE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS intentos_admin_only ON public.intentos_login;
+    CREATE POLICY intentos_admin_only ON public.intentos_login FOR ALL
+      USING (public.current_app_role() IN ('superadmin', 'admin'))
+      WITH CHECK (public.current_app_role() IN ('superadmin', 'admin'));
   `);
 
   await client.end();

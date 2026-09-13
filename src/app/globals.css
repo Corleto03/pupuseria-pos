@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #f3eee6;
-  --foreground: #1c1714;
+  --background: #f7f5f0;
+  --foreground: #18181b;
 }
 
 html,
@@ -19,21 +19,30 @@ body {
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none;
   }
   .btn-primary {
-    @apply btn bg-ink text-paper hover:bg-black;
+    @apply btn bg-stone-900 text-white hover:bg-black shadow-sm;
+  }
+  .btn-secondary {
+    @apply btn bg-stone-100 text-stone-900 hover:bg-stone-200 border border-stone-300 shadow-sm;
   }
   .btn-clay {
-    @apply btn bg-clay text-white hover:bg-orange-800;
+    @apply btn bg-clay text-white hover:bg-orange-800 shadow-sm;
+  }
+  .btn-emerald {
+    @apply btn bg-emerald-700 text-white hover:bg-emerald-800 shadow-sm;
+  }
+  .btn-danger {
+    @apply btn bg-rose-700 text-white hover:bg-rose-800 shadow-sm;
   }
   .btn-ghost {
-    @apply btn text-mute hover:bg-white/70 hover:text-ink;
+    @apply btn text-stone-600 hover:bg-stone-100 hover:text-stone-900;
   }
   .card {
-    @apply rounded-2xl border border-line bg-white shadow-card;
+    @apply rounded-xl border border-line bg-white shadow-card;
   }
   .input {
-    @apply w-full rounded-xl border border-line bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-ink;
+    @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink focus:ring-1 focus:ring-ink;
   }
 }

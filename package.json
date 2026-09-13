@@ -1,16 +1,71 @@
 {
   "name": "pupuseria-pos",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "Sistema POS Pupusería Gloria",
+  "author": "Pupusería Gloria",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "db:setup": "node scripts/setup-db.mjs"
+    "lint": "eslint .",
+    "db:setup": "node scripts/setup-db.mjs",
+    "db:check": "node scripts/check-db.mjs",
+    "build:local": "node scripts/build-local.mjs",
+    "electron:dev": "electron .",
+    "electron:build": "npm run build && electron-builder --win --publish never",
+    "electron:build:installer": "npm run build && electron-builder --win nsis --publish never"
   },
   "engines": {
     "node": ">=20"
+  },
+  "build": {
+    "appId": "com.pupuseria.pos",
+    "productName": "POS Pupusería",
+    "copyright": "© 2025 Pupusería Gloria",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "electron/**/*",
+      ".next/standalone/**/*",
+      ".next/static/**/*",
+      "public/**/*",
+      "scripts/**/*",
+      "sql/**/*",
+      "package.json",
+      ".env.local"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": ".next/standalone"
+      },
+      {
+        "from": "public",
+        "to": "public"
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "POS Pupusería",
+      "installerIcon": "public/favicon.ico",
+      "uninstallerIcon": "public/favicon.ico",
+      "installerHeaderIcon": "public/favicon.ico",
+      "runAfterFinish": true,
+      "displayLanguageSelector": false
+    },
+    "asar": false
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -26,6 +81,8 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@types/pg": "^8.23.1",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "15.1.6",
     "postcss": "^8.5.26",

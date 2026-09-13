@@ -42,12 +42,12 @@ export async function POST(request, { params }) {
         );
       } else {
         return c.query(
-          `INSERT INTO detalle_pedidos (id_pedido, id_producto, cantidad, notas, variante, destino_servicio, precio_unitario)
-           SELECT $1, $2, $3, $4, $5, $6, $7
+          `INSERT INTO detalle_pedidos (id_pedido, id_producto, cantidad, notas, variante, destino_servicio, precio_unitario, estacion)
+           SELECT $1, $2, $3, $4, $5, $6, $7, $8
            FROM pedidos pe
            WHERE pe.id = $1 AND pe.estado_pago = 'pendiente'
            RETURNING *`,
-          [id, p.id, body.cantidad || 1, body.notas || null, body.variante || null, destino, p.precio]
+          [id, p.id, body.cantidad || 1, body.notas || null, body.variante || null, destino, p.precio, p.categoria]
         );
       }
     });

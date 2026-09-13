@@ -9,6 +9,7 @@ import { useRealtime } from "@/hooks/useRealtime";
 import { useToast } from "@/components/Toast";
 import { useAuth } from "@/hooks/useAuth";
 import { printTicket } from "@/lib/printTicket";
+import { fmt } from "@/lib/formatters";
 
 export default function MesaOrdenPage() {
   const search = useSearchParams();
@@ -56,8 +57,8 @@ export default function MesaOrdenPage() {
       title={pedido ? `Mesa ${pedido.mesa_numero}` : "Mesa"}
       actions={
         pedido && (
-          <button onClick={() => setCobro(true)} className="btn-clay">
-            Cobrar
+          <button onClick={() => setCobro(true)} className="btn-emerald text-xs py-2 px-4 font-semibold">
+            Cobrar Pedido ({fmt.money(pedido.total)})
           </button>
         )
       }

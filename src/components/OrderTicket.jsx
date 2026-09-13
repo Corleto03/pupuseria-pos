@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { MASAS, fmt } from "@/lib/formatters";
-import { Minus, Plus, Trash2, X, ShoppingBag } from "lucide-react";
+import { Minus, Plus, Trash2, X, ShoppingBag, Printer } from "lucide-react";
 import ConfirmModal from "@/components/ConfirmModal";
 import { useAuth } from "@/hooks/useAuth";
+import { printComandaCocina } from "@/lib/printComanda";
 import clsx from "clsx";
 
 export default function OrderTicket({ pedido, productos, onChanged, toast }) {
@@ -15,11 +16,12 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
   const [saving, setSaving] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
+  const [imprimirComanda, setImprimirComanda] = useState(true);
 
   const cartItemCount = (pedido.detalles || []).reduce((acc, d) => acc + d.cantidad, 0);
 
   const byCat = useMemo(() => {
-    const g = { pupusa: [], bebida: [], extra: [] };
+    const g = { pupusa: [], panes: [], bebida: [], extra: [] };
     for (const p of productos) (g[p.categoria] || g.extra).push(p);
     return g;
   }, [productos]);
@@ -61,13 +63,19 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
   }
 
   function handlePedirCancelar() {
-    const hasItemsInPrep = (pedido.detalles || []).some((d) => ["preparacion", "entregado"].includes(d.estado_cocina));
-    const canForceCancel = ["superadmin", "admin"].includes(user?.rol);
-    if (hasItemsInPrep && !canForceCancel) {
-      return toast("No se puede cancelar: hay productos en preparación o entregados. Requiere usuario Administrador.", "err");
+    const hasItemsSent = (pedido.detalles || []).some((d) =>
+      ["pendiente", "preparacion", "entregado"].includes(d.estado_cocina)
+    );
+    const canForceCancel = ["superadmin", "admin", "gerente"].includes(user?.rol);
+    if (hasItemsSent && !canForceCancel) {
+      return toast(
+        "No se puede cancelar: el pedido ya tiene platillos enviados a cocina o entregados. Requiere autorización de Administrador o Gerente.",
+        "err"
+      );
     }
     setShowCancelModal(true);
   }
+
 
   async function ejecutarCancelarPedido() {
     setSaving(true);
@@ -100,19 +108,70 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
     const data = await res.json();
     setSaving(false);
     if (!res.ok) return toast(data.error, "err");
-    toast(`${data.enviados} platillo(s) enviado(s) a cocina`);
+
+    const rondaTxt = data.ronda > 1 ? ` (Ronda ${data.ronda} - Adición)` : " (Ronda 1)";
+    const msg = (data.items && data.items.length > 0)
+      ? `${data.enviados} platillo(s) enviado(s) a cocina${rondaTxt}`
+      : `${data.enviados} producto(s) agregado(s) al ticket`;
+    toast(msg);
+
+    if (imprimirComanda && data.items && data.items.length > 0) {
+      await printComandaCocina({
+        items: data.items,
+        ronda: data.ronda || 1,
+        pedido: data.pedido || pedido,
+      });
+    }
+
     onChanged();
+  }
+
+  const rondasDisponibles = useMemo(() => {
+    const set = new Set();
+    for (const d of (pedido.detalles || [])) {
+      if (d.estado_cocina !== "borrador" && d.ronda) {
+        set.add(Number(d.ronda));
+      }
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  }, [pedido.detalles]);
+
+  const [selectedRonda, setSelectedRonda] = useState("1");
+
+  async function reimprimirComanda() {
+    let itemsAImprimir = [];
+    let targetRonda = selectedRonda;
+
+    if (selectedRonda === "todas") {
+      itemsAImprimir = (pedido.detalles || []).filter((d) => d.estado_cocina !== "borrador");
+      targetRonda = "COMPLETA";
+    } else {
+      const rondaNum = Number(selectedRonda) || (rondasDisponibles[rondasDisponibles.length - 1] || 1);
+      itemsAImprimir = (pedido.detalles || []).filter((d) => (d.ronda || 1) === rondaNum && d.estado_cocina !== "borrador");
+      targetRonda = rondaNum;
+    }
+
+    if (itemsAImprimir.length === 0) {
+      return toast("No hay platillos registrados para esta ronda", "err");
+    }
+    await printComandaCocina({
+      items: itemsAImprimir,
+      ronda: targetRonda,
+      pedido,
+    });
+    toast(`Reimprimiendo comanda ${targetRonda === "COMPLETA" ? "completa" : `(Ronda ${targetRonda})`}`);
   }
 
 
   const tabs = [
     { id: "pupusa", label: "Pupusas" },
+    { id: "panes", label: "Panes con gallina" },
     { id: "bebida", label: "Bebidas" },
     { id: "extra", label: "Extras" },
   ];
 
   return (
-    <div className="flex flex-col lg:grid lg:grid-cols-[1fr_340px] gap-6 pb-24 lg:pb-0 relative">
+    <div className="flex flex-col lg:grid lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px] gap-5 pb-24 lg:pb-0 relative">
       <section>
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {tabs.map((t) => (
@@ -120,22 +179,24 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={clsx(
-                "rounded-full px-4 py-2 md:py-1.5 text-sm md:font-normal font-medium transition-colors active:scale-95",
-                tab === t.id ? "bg-ink text-paper" : "bg-white text-mute border border-line"
+                "rounded-lg px-4 py-2 text-sm font-semibold transition border",
+                tab === t.id
+                  ? "bg-stone-900 text-white border-stone-900 shadow-sm"
+                  : "bg-white text-stone-700 border-stone-300 hover:bg-stone-100"
               )}
             >
               {t.label}
             </button>
           ))}
           {tab === "pupusa" && (
-            <div className="ml-auto flex rounded-full bg-white p-1 border border-line">
+            <div className="ml-auto flex rounded-lg bg-white p-1 border border-stone-300">
               {MASAS.map((m) => (
                 <button
                   key={m}
                   onClick={() => setMasa(m)}
                   className={clsx(
-                    "rounded-full px-4 py-1.5 md:py-1 text-sm md:text-xs transition-colors active:scale-95",
-                    masa === m ? "bg-clay text-white font-medium" : "text-mute"
+                    "rounded-md px-3 py-1 text-xs font-semibold transition",
+                    masa === m ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-stone-100"
                   )}
                 >
                   {m}
@@ -144,21 +205,37 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
             </div>
           )}
           {pedido.tipo_pedido === "local" && (
-            <div className="flex rounded-full bg-white p-1 border border-line">
-              <button onClick={() => setDestino("local")} className={clsx("rounded-full px-3 py-1.5 text-xs", destino === "local" ? "bg-ink text-paper" : "text-mute")}>Comer aquí</button>
-              <button onClick={() => setDestino("llevar")} className={clsx("rounded-full px-3 py-1.5 text-xs", destino === "llevar" ? "bg-clay text-white" : "text-mute")}>Para llevar</button>
+            <div className="flex rounded-lg bg-white p-1 border border-stone-300">
+              <button
+                onClick={() => setDestino("local")}
+                className={clsx(
+                  "rounded-md px-3 py-1 text-xs font-semibold transition",
+                  destino === "local" ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-stone-100"
+                )}
+              >
+                Comer aquí
+              </button>
+              <button
+                onClick={() => setDestino("llevar")}
+                className={clsx(
+                  "rounded-md px-3 py-1 text-xs font-semibold transition",
+                  destino === "llevar" ? "bg-amber-700 text-white shadow-sm" : "text-stone-600 hover:bg-stone-100"
+                )}
+              >
+                Para llevar
+              </button>
             </div>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {byCat[tab].map((p) => (
             <button
               key={p.id}
               onClick={() => add(p)}
-              className="card p-3 md:p-4 text-left transition hover:-translate-y-0.5 active:scale-95 flex flex-col justify-between min-h-[90px]"
+              className="card p-3.5 md:p-4 text-left transition hover:border-stone-400 flex flex-col justify-between min-h-[95px] shadow-card"
             >
-              <p className="font-medium text-sm md:text-base leading-tight">{p.especialidad || p.nombre}</p>
-              <p className="mt-2 text-sm text-mute font-medium">{fmt.money(p.precio)}</p>
+              <p className="font-bold text-sm text-stone-900 leading-snug">{p.especialidad || p.nombre}</p>
+              <p className="mt-2 text-sm font-mono font-bold text-stone-700">{fmt.money(p.precio)}</p>
             </button>
           ))}
         </div>
@@ -263,16 +340,33 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
               </li>
             )}
             {(pedido.detalles || []).map((d) => {
-              const editable = ["borrador", "pendiente"].includes(d.estado_cocina);
+              const isBoss = ["superadmin", "admin", "gerente"].includes(user?.rol);
+              const isExtra = d.estacion === "extra";
+              const editable =
+                d.estado_cocina === "borrador" ||
+                (isBoss && (["pendiente", "preparacion"].includes(d.estado_cocina) || isExtra));
               return (
+
                 <li key={d.id} className="flex items-center justify-between gap-3 border-b border-line pb-4 lg:pb-3 last:border-0 last:pb-0">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
-                      {d.producto_nombre}
-                      {d.variante ? ` · ${d.variante}` : ""}
+                    <p className="text-sm font-medium truncate flex items-center gap-1.5 flex-wrap">
+                      <span>{d.producto_nombre}</span>
+                      {d.variante ? <span className="text-mute font-normal">· {d.variante}</span> : null}
+                      {d.ronda > 1 && d.estado_cocina !== "borrador" && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                          Ronda {d.ronda}
+                        </span>
+                      )}
+                      {d.estado_cocina === "borrador" && (pedido.detalles || []).some((x) => x.estado_cocina !== "borrador") && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-sky-100 text-sky-900 border border-sky-300">
+                          Nueva adición
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-mute">
-                      {d.estado_cocina === "borrador" ? "Sin enviar a cocina" : d.estado_cocina === "pendiente" ? "En cocina · aún no iniciada" : d.estado_cocina}
+                      {isExtra
+                        ? (d.estado_cocina === "borrador" ? "Mostrador · Sin confirmar" : "Mostrador · Entregado")
+                        : (d.estado_cocina === "borrador" ? "Sin enviar a cocina" : d.estado_cocina === "pendiente" ? "En cocina · en espera" : d.estado_cocina === "entregado" ? "Cocina · Entregado" : d.estado_cocina)}
                       {" · "}{d.destino_servicio === "llevar" ? "Para llevar" : "Comer aquí"}
                     </p>
                     {editable && d.variante && (
@@ -354,16 +448,86 @@ export default function OrderTicket({ pedido, productos, onChanged, toast }) {
           </div>
           {pedido.estado_pago === "pendiente" && (
             <div className="mt-0 space-y-2 lg:mt-4">
-              {(pedido.detalles || []).some((d) => d.estado_cocina === "borrador") && (
-                <button type="button" disabled={saving} onClick={enviarACocina} className="btn-primary w-full py-3.5 text-sm font-semibold lg:py-2.5 lg:text-xs">
-                  Enviar nuevos platillos a cocina
-                </button>
+              {(pedido.detalles || []).some((d) => d.estado_cocina === "borrador") && (() => {
+                const hasKitchenDrafts = (pedido.detalles || []).some(
+                  (d) => d.estado_cocina === "borrador" && d.estacion !== "extra"
+                );
+                const hasPrevious = (pedido.detalles || []).some((d) => d.estado_cocina !== "borrador");
+                const buttonLabel = hasKitchenDrafts
+                  ? (hasPrevious ? `Enviar adición a cocina (Ronda ${(pedido.ronda_actual || 1) + 1})` : "Enviar comanda a cocina (Ronda 1)")
+                  : "Confirmar productos al ticket";
+
+                return (
+                  <>
+                    {hasKitchenDrafts && (
+                      <label className="flex items-center gap-2 text-xs text-mute cursor-pointer select-none py-1">
+                        <input
+                          type="checkbox"
+                          checked={imprimirComanda}
+                          onChange={(e) => setImprimirComanda(e.target.checked)}
+                          className="rounded border-line text-ink focus:ring-0"
+                        />
+                        <span>Imprimir mini-tickets térmicos por área</span>
+                      </label>
+                    )}
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={enviarACocina}
+                      className="btn-primary w-full py-3.5 text-sm font-semibold lg:py-2.5 lg:text-xs"
+                    >
+                      {buttonLabel}
+                    </button>
+                  </>
+                );
+              })()}
+
+              {rondasDisponibles.length > 0 && (
+                <div className="pt-1">
+                  {rondasDisponibles.length > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <select
+                        aria-label="Seleccionar ronda a reimprimir"
+                        value={selectedRonda}
+                        onChange={(e) => setSelectedRonda(e.target.value)}
+                        className="rounded-lg border border-stone-300 bg-white px-2.5 py-2 text-xs font-semibold text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-900 shrink-0"
+                      >
+                        {rondasDisponibles.map((r) => (
+                          <option key={r} value={r}>
+                            Ronda {r} {r === 1 ? "(Inicial)" : "(Adición)"}
+                          </option>
+                        ))}
+                        <option value="todas">Todas las rondas</option>
+                      </select>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={reimprimirComanda}
+                        className="btn-secondary flex-1 text-xs py-2 flex items-center justify-center gap-1.5"
+                      >
+                        <Printer size={13} />
+                        <span>Reimprimir</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={reimprimirComanda}
+                      className="btn-secondary w-full text-xs py-2 flex items-center justify-center gap-1.5"
+                    >
+                      <Printer size={13} />
+                      <span>Reimprimir comanda (Ronda 1)</span>
+                    </button>
+                  )}
+                </div>
               )}
+
               <button
                 type="button"
                 disabled={saving}
                 onClick={handlePedirCancelar}
-                className="btn-ghost w-full text-sm lg:text-xs text-wine border border-wine/20 hover:bg-wine/5 rounded-xl py-3.5 lg:py-2.5 font-semibold transition active:scale-95"
+                className="btn-secondary w-full text-xs text-rose-700 hover:bg-rose-50 border border-rose-300 py-2.5 font-semibold"
               >
                 Cancelar Pedido
               </button>

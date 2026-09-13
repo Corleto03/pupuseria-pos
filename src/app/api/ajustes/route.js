@@ -12,7 +12,7 @@ export async function GET() {
     rows.forEach((r) => {
       config[r.clave] = r.valor;
     });
-    return NextResponse.json(config);
+    return NextResponse.json({ ...config, ajustes: config });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -71,16 +71,22 @@ export async function PATCH(request) {
           const buffer = Buffer.from(bytes);
           const ext = validateImageFile(file, buffer);
           
-          // Ensure public directory exists
-          const publicDir = path.join(process.cwd(), "public");
-          if (!fs.existsSync(publicDir)) {
-            await mkdir(publicDir, { recursive: true });
+          const mimeType = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+          logoUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
+
+          // Intento opcional y no bloqueante de guardar en public/ si los permisos de disco lo permiten
+          try {
+            const publicDir = path.join(process.cwd(), "public");
+            if (!fs.existsSync(publicDir)) {
+              await mkdir(publicDir, { recursive: true });
+            }
+            const filename = `logo${ext}`;
+            const uploadPath = path.join(publicDir, filename);
+            await writeFile(uploadPath, buffer);
+          } catch (writeErr) {
+            // En ejecutables empaquetados de Electron o directorios protegidos, ignoramos el fallo de disco
+            // ya que el logo se guarda y sirve directamente en Base64 desde la base de datos PostgreSQL
           }
-          
-          const filename = `logo${ext}`;
-          const uploadPath = path.join(publicDir, filename);
-          await writeFile(uploadPath, buffer);
-          logoUrl = `/${filename}?v=${Date.now()}`; // Add version for cache busting
         }
       }
     } else {
@@ -114,7 +120,7 @@ export async function PATCH(request) {
     rows.forEach((r) => {
       config[r.clave] = r.valor;
     });
-    return NextResponse.json(config);
+    return NextResponse.json({ ...config, ajustes: config });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: err.status || 500 });
   }
